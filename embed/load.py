@@ -10,6 +10,8 @@ from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTok
 from sentence_transformers import SentenceTransformer
 from zvec import Collection, Doc
 
+from .model import build_sentence_transformer
+
 from .document import (
     build_docs,
     normalize_source_name,
@@ -50,10 +52,7 @@ def _build_transformer(
     embed_model_name: str,
     models_dir: Path,
 ) -> tuple[SentenceTransformer, int]:
-    transformer = SentenceTransformer(
-        embed_model_name,
-        cache_folder=str(models_dir),
-    )
+    transformer = build_sentence_transformer(embed_model_name, models_dir)
     dim = transformer.get_embedding_dimension()
     if dim is None:
         raise RuntimeError(

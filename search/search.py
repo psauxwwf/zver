@@ -4,18 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
 
 import zvec
 from sentence_transformers import SentenceTransformer
 from zvec import Collection, CollectionOption, Doc, IVFQueryParam, VectorQuery
 
+from embed.model import build_sentence_transformer
 from embed.store import (
     METADATA_FIELD,
     NAME_EMBEDDING_FIELD,
@@ -23,6 +19,7 @@ from embed.store import (
     TEXT_EMBEDDING_FIELD,
     TEXT_FIELD,
 )
+
 
 DEFAULT_ALL_BY_NAME_LIMIT = 16384
 
@@ -67,7 +64,7 @@ def build_context(
     collection = zvec.open(
         str(collection_path), option=CollectionOption(read_only=True)
     )
-    transformer = SentenceTransformer(embed_model, cache_folder=str(models_dir))
+    transformer = build_sentence_transformer(embed_model, models_dir)
     return SearchContext(collection=collection, transformer=transformer)
 
 
