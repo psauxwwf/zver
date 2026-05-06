@@ -1,0 +1,11 @@
+[project]
+name = "zver"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "docling>=2.92.0",
+    "sentence-transformers>=5.4.1",
+    "zvec>=0.3.1",
+]
