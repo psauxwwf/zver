@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import uuid
+import hashlib
 from pathlib import Path
 
 from zvec import Doc
@@ -42,6 +42,11 @@ def build_metadata(
     )
 
 
+def build_doc_id(path: Path, chunk_index: int) -> str:
+    payload = f"{path.as_posix()}\0{chunk_index}".encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
 def build_docs(
     path: Path,
     chunks: list[str],
@@ -57,7 +62,7 @@ def build_docs(
     ):
         docs.append(
             Doc(
-                id=uuid.uuid4().hex,
+                id=build_doc_id(path, chunk_index),
                 fields={
                     NAME_FIELD: name,
                     TEXT_FIELD: chunk,

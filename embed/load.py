@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from .document import (
     normalize_source_name,
 )
 from .store import (
+    METADATA_FIELD,
     get_or_create_collection,
 )
 from .source import (
@@ -36,7 +38,7 @@ def _flush_batch(collection: Collection, docs_batch: list[Doc]) -> int:
     if not docs_batch:
         return 0
 
-    collection.insert(docs_batch)
+    collection.upsert(docs_batch)
     inserted = len(docs_batch)
     docs_batch.clear()
     return inserted
@@ -80,16 +82,20 @@ def _get_chunks(
     return merge_chunks(chunks, chunk_chars, max_text_len)
 
 
-def _extend_docs_batch(
-    docs_batch: list[Doc],
+def _build_docs_for_path(
     path: Path,
     chunks: list[str],
     transformer: SentenceTransformer,
-) -> None:
+) -> list[Doc]:
     text_embeddings = transformer.encode(chunks).tolist()
     name = normalize_source_name(path)
     name_embedding = transformer.encode([name]).tolist()[0]
-    docs_batch.extend(build_docs(path, chunks, text_embeddings, name_embedding))
+    return build_docs(path, chunks, text_embeddings, name_embedding)
+
+
+def _path_filter(path: Path) -> str:
+    path_fragment = f'"path": {json.dumps(str(path), ensure_ascii=False)}'
+    return f'{METADATA_FIELD} LIKE {json.dumps(f"%{path_fragment}%", ensure_ascii=False)}'
 
 
 def load_documents(
@@ -139,20 +145,29 @@ def load_documents(
             continue
 
         if not chunks:
+            collection.delete_by_filter(_path_filter(path))
             logging.debug("No chunks produced for %s", path)
             continue
 
-        _extend_docs_batch(docs_batch, path, chunks, transformer)
+        docs_for_path = _build_docs_for_path(path, chunks, transformer)
+
+        if batch_size > 0 and docs_batch and len(docs_batch) + len(docs_for_path) > batch_size:
+            inserted = _flush_batch(collection, docs_batch)
+            ingested += inserted
+            logging.info("Upserted %s chunks (total %s)", inserted, ingested)
+
+        collection.delete_by_filter(_path_filter(path))
+        docs_batch.extend(docs_for_path)
 
         if batch_size > 0 and len(docs_batch) >= batch_size:
             inserted = _flush_batch(collection, docs_batch)
             ingested += inserted
-            logging.info("Inserted %s chunks (total %s)", inserted, ingested)
+            logging.info("Upserted %s chunks (total %s)", inserted, ingested)
 
     inserted = _flush_batch(collection, docs_batch)
     if inserted:
         ingested += inserted
-        logging.info("Inserted final %s chunks", inserted)
+        logging.info("Upserted final %s chunks", inserted)
 
     if ingested == 0:
         logging.info("No data to ingest")
