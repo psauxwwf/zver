@@ -1,0 +1,44 @@
+version: "3"
+
+vars:
+  bin: "{{.TASKFILE_DIR}}/bin"
+  py_bin: "{{.bin}}/zver"
+  release_repo: "devil666face/zver"
+
+tasks:
+  setup:
+    desc: setup
+    internal: true
+    silent: true
+    cmds:
+      - mkdir -p "{{.bin}}"
+
+  build:python:
+    desc: build server
+    deps:
+      - setup
+    cmds:
+      - |
+        uv run -m nuitka \
+        --onefile \
+        --standalone \
+        --follow-imports \
+        --assume-yes-for-downloads \
+        --output-filename="{{.py_bin}}" \
+        main.py
+
+  build:docker:
+    desc: build via docker
+    cmds:
+      - docker compose -f docker-compose.build.yaml up --build --force-recreate
+      - docker rm zver-build --force
+
+  release:
+    desc: publish release
+    deps:
+      - build:docker
+    vars:
+      tag:
+        sh: date +%m.%d.%H
+    cmds:
+      - gh release create -R "{{.release_repo}}" "{{.tag}}" "{{.py_bin}}"
