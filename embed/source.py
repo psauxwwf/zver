@@ -34,20 +34,17 @@ def convert_file(
 
 def merge_chunks(
     chunks: list[str],
-    min_chars: int,
-    max_len: int,
+    chunk_min_chars: int,
 ) -> list[str]:
     clean_chunks = [chunk.strip() for chunk in chunks if chunk.strip()]
     result: list[str] = []
 
     def _flush(buffer_parts: list[str]) -> None:
         if buffer_parts:
-            result.extend(_split_with_max("\n\n".join(buffer_parts), max_len))
+            result.append("\n\n".join(buffer_parts))
 
-    if min_chars <= 0:
-        for chunk in clean_chunks:
-            result.extend(_split_with_max(chunk, max_len))
-        return result
+    if chunk_min_chars <= 0:
+        return clean_chunks
 
     buffer_parts: list[str] = []
     buffer_len = 0
@@ -56,17 +53,12 @@ def merge_chunks(
         chunk_len = len(chunk)
         next_len = buffer_len + 2 + chunk_len
 
-        if buffer_parts and next_len > max_len:
-            _flush(buffer_parts)
-            buffer_parts = []
-            buffer_len = 0
-
         if not buffer_parts:
             buffer_parts = [chunk]
             buffer_len = chunk_len
             continue
 
-        if buffer_len >= min_chars:
+        if buffer_len >= chunk_min_chars:
             _flush(buffer_parts)
             buffer_parts = [chunk]
             buffer_len = chunk_len
@@ -77,11 +69,3 @@ def merge_chunks(
     _flush(buffer_parts)
 
     return result
-
-
-def _split_with_max(text: str, max_len: int) -> list[str]:
-    if not text:
-        return []
-    if len(text) <= max_len:
-        return [text]
-    return [text[i : i + max_len] for i in range(0, len(text), max_len)]

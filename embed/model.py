@@ -75,6 +75,8 @@ def build_sentence_transformer(
         if not _is_local_cache_miss(exc):
             raise
 
-    logging.info("Model %s is not fully cached; checking Hugging Face", embed_model_name)
+    logging.info(
+        "Model %s is not fully cached; checking Hugging Face", embed_model_name
+    )
     kwargs["local_files_only"] = False
     return SentenceTransformer(embed_model_name, **kwargs)

@@ -9,9 +9,8 @@ DEFAULT_EMBED_MODEL_NAME = "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
 DEFAULT_ZVEC_URI = Path("data") / "zvec"
 DEFAULT_TOP_K = 5
 DEFAULT_NPROBE = 10
-DEFAULT_BATCH_SIZE = 512
-DEFAULT_CHUNK_CHARS = 1024
-DEFAULT_MAX_TEXT_LEN = 8192
+DEFAULT_BATCH_SIZE = 1024
+DEFAULT_CHUNK_MIN_CHARS = 256
 DEFAULT_EXTENSIONS = (
     ".pdf",
     ".doc",
@@ -29,21 +28,28 @@ MODE_ALL_BY_NAME = "all_by_name"
 MODE_ALL_BY_NAME_EMBED = "all_by_name_embed"
 
 
+def _batch_size_arg(value: str) -> int:
+    batch_size = int(value)
+    if batch_size < 1 or batch_size > 1024:
+        raise argparse.ArgumentTypeError("batch size must be in range 1..1024")
+    return batch_size
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert documents to embeddings and store them in zvec",
+        description="Ingest documents into zvec and run searches against them",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--docs",
         type=str,
         default=str(DEFAULT_DOCS_DIR),
-        help="Directory with source documents",
+        help="Directory with documents to ingest",
     )
     parser.add_argument(
         "--embed-model",
         default=DEFAULT_EMBED_MODEL_NAME,
-        help="Sentence-Transformers model to use for embeddings",
+        help="Sentence-Transformers embedding model",
     )
     parser.add_argument(
         "--query",
@@ -51,7 +57,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         const="",
         metavar="TEXT",
-        help="Ad-hoc query to run and print as JSON",
+        help="Run a search query and print results as JSON",
     )
     parser.add_argument(
         "--mode",
@@ -62,73 +68,62 @@ def parse_args() -> argparse.Namespace:
             MODE_ALL_BY_NAME,
             MODE_ALL_BY_NAME_EMBED,
         ],
-        help="Search mode for --query",
+        help="Search mode to use with --query",
     )
     parser.add_argument(
         "--top-k",
         type=int,
         default=DEFAULT_TOP_K,
-        help="Number of search results or candidate names to use",
+        help="Maximum number of results to return",
     )
     parser.add_argument(
         "--nprobe",
         type=int,
         default=DEFAULT_NPROBE,
-        help="IVF nprobe search parameter for vector search",
+        help="IVF nprobe value for vector search",
     )
     parser.add_argument(
         "--zvec-uri",
         type=str,
         default=str(DEFAULT_ZVEC_URI),
-        help="Directory where zvec collections are stored",
+        help="Directory where zvec data is stored",
     )
     parser.add_argument(
         "--batch-size",
-        type=int,
+        type=_batch_size_arg,
         default=DEFAULT_BATCH_SIZE,
-        help="Number of chunks per zvec insert (0 = all at once)",
+        help="Number of chunks to upsert per batch",
     )
     parser.add_argument(
-        "--chunk-chars",
+        "--chunk-min-chars",
+        dest="chunk_min_chars",
         type=int,
-        default=DEFAULT_CHUNK_CHARS,
-        help="Approximate min characters per chunk (0 disables merging)",
-    )
-    parser.add_argument(
-        "--max-text-len",
-        type=int,
-        default=DEFAULT_MAX_TEXT_LEN,
-        help="Hard max characters per stored chunk",
+        default=DEFAULT_CHUNK_MIN_CHARS,
+        help="Target minimum chunk size in characters (0 - disables merging)",
     )
     parser.add_argument(
         "--by-source",
         action="store_true",
-        help=(
-            "Merge all chunks for a single source into one text and "
-            "re-split it into pieces of up to --max-text-len characters"
-        ),
+        help="Merge each source into one chunk before embedding",
     )
     parser.add_argument(
         "--ext",
         nargs="*",
         default=list(DEFAULT_EXTENSIONS),
         metavar=".EXT",
-        help="File extensions to ingest (case-insensitive)",
+        help="File extensions to ingest, case-insensitive",
     )
     parser.add_argument(
         "--log",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
-        help="Logging verbosity",
+        help="Logging level",
     )
     return parser.parse_args()
 
 
 def normalize_args(args: argparse.Namespace) -> argparse.Namespace:
-    if args.max_text_len < 1:
-        args.max_text_len = DEFAULT_MAX_TEXT_LEN
-
-    if args.chunk_chars > 0 and args.chunk_chars > args.max_text_len:
-        args.chunk_chars = args.max_text_len
+    if args.chunk_min_chars < 0:
+        raise ValueError("chunk min chars must be greater than or equal to 0")
 
     return args

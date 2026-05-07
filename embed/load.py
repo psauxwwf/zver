@@ -22,7 +22,6 @@ from .store import (
     get_or_create_collection,
 )
 from .source import (
-    _split_with_max,
     convert_file,
     get_source_files,
     merge_chunks,
@@ -68,8 +67,7 @@ def _get_chunks(
     converter: DocumentConverter,
     chunker: HybridChunker,
     by_source: bool,
-    chunk_chars: int,
-    max_text_len: int,
+    chunk_min_chars: int,
 ) -> list[str]:
     chunks = convert_file(path, converter, chunker)
 
@@ -77,9 +75,9 @@ def _get_chunks(
         full_text = "\n\n".join(chunk.strip() for chunk in chunks if chunk.strip())
         if not full_text:
             return []
-        return _split_with_max(full_text, max_text_len)
+        return [full_text]
 
-    return merge_chunks(chunks, chunk_chars, max_text_len)
+    return merge_chunks(chunks, chunk_min_chars)
 
 
 def _build_docs_for_path(
@@ -105,8 +103,7 @@ def load_documents(
     zvec_uri: Path,
     models_dir: Path,
     batch_size: int,
-    chunk_chars: int,
-    max_text_len: int,
+    chunk_min_chars: int,
     by_source: bool,
     include_ext: list[str] | None,
 ) -> int:
@@ -136,13 +133,19 @@ def load_documents(
                 converter=converter,
                 chunker=chunker,
                 by_source=by_source,
-                chunk_chars=chunk_chars,
-                max_text_len=max_text_len,
+                chunk_min_chars=chunk_min_chars,
             )
         except Exception as exc:  # pragma: no cover - logging only
             skipped += 1
             logging.warning("Skipping %s: %s", path, exc)
             continue
+
+        logging.info(
+            "Chunked %s into %s chunks with lengths=%s",
+            path,
+            len(chunks),
+            [len(chunk) for chunk in chunks],
+        )
 
         if not chunks:
             collection.delete_by_filter(_path_filter(path))
