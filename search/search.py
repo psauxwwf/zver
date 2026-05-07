@@ -7,11 +7,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from docling.document_converter import DocumentConverter
+import dashtext
 import zvec
 from sentence_transformers import SentenceTransformer
 from zvec import (
-    BM25EmbeddingFunction,
     Collection,
     CollectionOption,
     Doc,
@@ -21,15 +20,14 @@ from zvec import (
 )
 
 from embed.model import build_sentence_transformer
-from embed.source import build_hybrid_chunker, get_chunks, get_source_files
 from embed.store import (
+    BM25_ENCODER_FILENAME,
     METADATA_FIELD,
     NAME_EMBEDDING_FIELD,
     NAME_FIELD,
     TEXT_SPARSE_EMBEDDING_FIELD,
     TEXT_EMBEDDING_FIELD,
     TEXT_FIELD,
-    read_embed_config,
 )
 from .types import SearchResult
 
@@ -44,7 +42,7 @@ class SearchContext:
     collection_name: str
     zvec_uri: Path
     docs_dir: Path
-    text_bm25_query_encoder: BM25EmbeddingFunction | None = None
+    text_bm25_query_encoder: dashtext.SparseVectorEncoder | None = None
     text_bm25_query_encoder_loaded: bool = False
 
 
@@ -98,45 +96,19 @@ def _build_text_bm25_query_encoder(
     zvec_uri: Path,
     docs_dir: Path,
     transformer: SentenceTransformer,
-) -> BM25EmbeddingFunction | None:
-    if not docs_dir.exists() or not docs_dir.is_dir():
+) -> dashtext.SparseVectorEncoder | None:
+    encoder_path = zvec_uri / collection_name / BM25_ENCODER_FILENAME
+    if not encoder_path.exists():
         return None
 
-    config = read_embed_config(collection_name, zvec_uri)
-    if config is None:
-        return None
-
-    chunk_min_chars = int(config.get("chunk_min_chars", 256))
-    by_source = bool(config.get("by_source", False))
-    include_ext = config.get("include_ext")
-    if include_ext is not None and not isinstance(include_ext, list):
-        include_ext = None
-
-    converter = DocumentConverter()
-    chunker = build_hybrid_chunker(transformer)
-    corpus: list[str] = []
-
-    for path in get_source_files(docs_dir, include_ext):
-        try:
-            corpus.extend(
-                get_chunks(
-                    path=path,
-                    converter=converter,
-                    chunker=chunker,
-                    by_source=by_source,
-                    chunk_min_chars=chunk_min_chars,
-                )
-            )
-        except Exception:
-            continue
-
-    if not corpus:
-        return None
-
-    return BM25EmbeddingFunction(corpus=corpus, encoding_type="query")
+    encoder = dashtext.SparseVectorEncoder(b=0.75, k1=1.2)
+    encoder.load(str(encoder_path))
+    return encoder
 
 
-def _ensure_text_bm25_query_encoder(ctx: SearchContext) -> BM25EmbeddingFunction | None:
+def _ensure_text_bm25_query_encoder(
+    ctx: SearchContext,
+) -> dashtext.SparseVectorEncoder | None:
     if ctx.text_bm25_query_encoder_loaded:
         return ctx.text_bm25_query_encoder
 
@@ -263,10 +235,14 @@ def _build_text_bm25_query_vector(
             "BM25 search is unavailable for this collection. Re-run embedding with the current version to build sparse vectors."
         )
 
-    sparse_vector = encoder.embed(query_value)
+    sparse_vector = encoder.encode_queries(query_value)
     if not sparse_vector:
         return {}
-    return sparse_vector
+    return {
+        int(key): float(value)
+        for key, value in sparse_vector.items()
+        if float(value) > 0
+    }
 
 
 def find_by_text_bm25(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:

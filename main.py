@@ -1,4 +1,4 @@
-#!/usr/bin/env .venv/bin/python
+#!.venv/bin/python
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ from search.search import (
     run_search,
 )
 from search.types import search_results_to_jsonable
-
 
 COLLECTION_LAYOUT_VERSION = 2
 

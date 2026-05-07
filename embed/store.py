@@ -26,6 +26,7 @@ NAME_EMBEDDING_FIELD = "name_embedding"
 TEXT_EMBEDDING_FIELD = "text_embedding"
 TEXT_SPARSE_EMBEDDING_FIELD = "text_sparse_embedding"
 EMBED_CONFIG_FILENAME = "_embed_config.json"
+BM25_ENCODER_FILENAME = "_text_bm25_encoder.json"
 
 
 def _ensure_zvec_initialized() -> None:

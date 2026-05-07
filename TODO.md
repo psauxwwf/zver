@@ -1,0 +1,3 @@
+- [ ] Like in grep
+- [ ] Hybrid as default
+- [ ] Tool call for every query in skill

@@ -11,6 +11,3 @@ dependencies = [
   "sentence-transformers>=5.4.1",
   "zvec>=0.3.1",
 ]
-
-[dependency-groups]
-dev = ["nuitka[onefile]>=4.0.8"]

@@ -16,6 +16,7 @@ from .document import (
     normalize_source_name,
 )
 from .store import (
+    BM25_ENCODER_FILENAME,
     METADATA_FIELD,
     get_or_create_collection,
     write_embed_config,
@@ -90,6 +91,19 @@ def _path_filter(path: Path) -> str:
     return f'{METADATA_FIELD} LIKE {json.dumps(f"%{path_fragment}%", ensure_ascii=False)}'
 
 
+def _write_bm25_encoder(
+    zvec_uri: Path,
+    collection_name: str,
+    bm25_document_encoder: BM25EmbeddingFunction,
+) -> None:
+    encoder = getattr(bm25_document_encoder, "_encoder", None)
+    if encoder is None:
+        raise RuntimeError("BM25 encoder is unavailable for persistence")
+
+    encoder_path = zvec_uri / collection_name / BM25_ENCODER_FILENAME
+    encoder.dump(str(encoder_path))
+
+
 def load_documents(
     docs_dir: Path,
     collection_name: str,
@@ -160,6 +174,11 @@ def load_documents(
     bm25_document_encoder = BM25EmbeddingFunction(
         corpus=text_corpus,
         encoding_type="document",
+    )
+    _write_bm25_encoder(
+        zvec_uri=zvec_uri,
+        collection_name=collection_name,
+        bm25_document_encoder=bm25_document_encoder,
     )
     write_embed_config(
         collection_name=collection_name,
