@@ -6,10 +6,8 @@ import os
 from pathlib import Path
 
 from docling.document_converter import DocumentConverter
-from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
-from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 from sentence_transformers import SentenceTransformer
-from zvec import Collection, Doc
+from zvec import BM25EmbeddingFunction, Collection, Doc
 
 from .model import build_sentence_transformer
 
@@ -20,17 +18,13 @@ from .document import (
 from .store import (
     METADATA_FIELD,
     get_or_create_collection,
+    write_embed_config,
 )
 from .source import (
-    convert_file,
+    build_hybrid_chunker,
     get_source_files,
-    merge_chunks,
+    get_chunks,
 )
-
-
-def _build_chunker(transformer: SentenceTransformer) -> HybridChunker:
-    tokenizer = HuggingFaceTokenizer(tokenizer=transformer.tokenizer)
-    return HybridChunker(tokenizer=tokenizer, merge_peers=True)
 
 
 def _flush_batch(collection: Collection, docs_batch: list[Doc]) -> int:
@@ -65,30 +59,30 @@ def _build_transformer(
 def _get_chunks(
     path: Path,
     converter: DocumentConverter,
-    chunker: HybridChunker,
+    chunker,
     by_source: bool,
     chunk_min_chars: int,
 ) -> list[str]:
-    chunks = convert_file(path, converter, chunker)
-
-    if by_source:
-        full_text = "\n\n".join(chunk.strip() for chunk in chunks if chunk.strip())
-        if not full_text:
-            return []
-        return [full_text]
-
-    return merge_chunks(chunks, chunk_min_chars)
+    return get_chunks(path, converter, chunker, by_source, chunk_min_chars)
 
 
 def _build_docs_for_path(
     path: Path,
     chunks: list[str],
     transformer: SentenceTransformer,
+    bm25_document_encoder: BM25EmbeddingFunction,
 ) -> list[Doc]:
     text_embeddings = transformer.encode(chunks).tolist()
+    text_sparse_embeddings = [bm25_document_encoder.embed(chunk) for chunk in chunks]
     name = normalize_source_name(path)
     name_embedding = transformer.encode([name]).tolist()[0]
-    return build_docs(path, chunks, text_embeddings, name_embedding)
+    return build_docs(
+        path,
+        chunks,
+        text_embeddings,
+        text_sparse_embeddings,
+        name_embedding,
+    )
 
 
 def _path_filter(path: Path) -> str:
@@ -110,7 +104,7 @@ def load_documents(
     _configure_model_storage(models_dir)
     converter = DocumentConverter()
     transformer, dim = _build_transformer(embed_model_name, models_dir)
-    chunker = _build_chunker(transformer)
+    chunker = build_hybrid_chunker(transformer)
     collection = get_or_create_collection(
         collection_name=collection_name,
         zvec_uri=str(zvec_uri),
@@ -125,6 +119,8 @@ def load_documents(
     docs_batch: list[Doc] = []
     ingested = 0
     skipped = 0
+    prepared_docs: list[tuple[Path, list[str]]] = []
+    empty_paths: list[Path] = []
 
     for path in files:
         try:
@@ -148,11 +144,43 @@ def load_documents(
         )
 
         if not chunks:
-            collection.delete_by_filter(_path_filter(path))
+            empty_paths.append(path)
             logging.debug("No chunks produced for %s", path)
             continue
 
-        docs_for_path = _build_docs_for_path(path, chunks, transformer)
+        prepared_docs.append((path, chunks))
+
+    text_corpus = [chunk for _, chunks in prepared_docs for chunk in chunks]
+    if not text_corpus:
+        for path in empty_paths:
+            collection.delete_by_filter(_path_filter(path))
+        logging.info("No data to ingest")
+        return 0
+
+    bm25_document_encoder = BM25EmbeddingFunction(
+        corpus=text_corpus,
+        encoding_type="document",
+    )
+    write_embed_config(
+        collection_name=collection_name,
+        zvec_uri=zvec_uri,
+        config={
+            "chunk_min_chars": chunk_min_chars,
+            "by_source": by_source,
+            "include_ext": include_ext,
+        },
+    )
+
+    for path in empty_paths:
+        collection.delete_by_filter(_path_filter(path))
+
+    for path, chunks in prepared_docs:
+        docs_for_path = _build_docs_for_path(
+            path,
+            chunks,
+            transformer,
+            bm25_document_encoder,
+        )
 
         if batch_size > 0 and docs_batch and len(docs_batch) + len(docs_for_path) > batch_size:
             inserted = _flush_batch(collection, docs_batch)

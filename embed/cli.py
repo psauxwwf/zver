@@ -22,10 +22,12 @@ DEFAULT_EXTENSIONS = (
     ".rst",
 )
 
-MODE_FIND_BY_TEXT_EMBED = "find_by_text_embed"
-MODE_FIND_BY_TEXT = "find_by_text"
-MODE_ALL_BY_NAME = "all_by_name"
-MODE_ALL_BY_NAME_EMBED = "all_by_name_embed"
+MODE_FIND_BY_TEXT_DENSE = "find_by_text_dense"
+MODE_FIND_BY_TEXT_BM25 = "find_by_text_bm25"
+MODE_FIND_BY_TEXT_HYBRID = "find_by_text_hybrid"
+MODE_FIND_BY_TEXT_LIKE = "find_by_text_like"
+MODE_ALL_BY_NAME_LIKE = "all_by_name_like"
+MODE_ALL_BY_NAME_DENSE = "all_by_name_dense"
 
 
 def _batch_size_arg(value: str) -> int:
@@ -122,12 +124,14 @@ def parse_args() -> argparse.Namespace:
     _add_zvec_uri_arg(query_parser)
     query_parser.add_argument(
         "--mode",
-        default=MODE_FIND_BY_TEXT_EMBED,
+        default=MODE_FIND_BY_TEXT_DENSE,
         choices=[
-            MODE_FIND_BY_TEXT_EMBED,
-            MODE_FIND_BY_TEXT,
-            MODE_ALL_BY_NAME,
-            MODE_ALL_BY_NAME_EMBED,
+            MODE_FIND_BY_TEXT_DENSE,
+            MODE_FIND_BY_TEXT_BM25,
+            MODE_FIND_BY_TEXT_HYBRID,
+            MODE_FIND_BY_TEXT_LIKE,
+            MODE_ALL_BY_NAME_LIKE,
+            MODE_ALL_BY_NAME_DENSE,
         ],
         help="Search mode",
     )

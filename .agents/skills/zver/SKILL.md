@@ -19,23 +19,29 @@ Goals of this skill:
 Use this decision order:
 
 1. If you first need to know what documents exist at all, call `MCP_ZVER_all_names`.
-2. If the user is searching by meaning, topic, question, or content description, call `MCP_ZVER_find_by_text_embed`.
-3. If the user knows the exact phrase, code, term, or literal text fragment, call `MCP_ZVER_find_by_text`.
-4. If the user knows the document name or part of it and wants that document's content, call `MCP_ZVER_all_by_name`.
-5. If the user does not know the exact document name but describes it semantically, and wants the full document, call `MCP_ZVER_all_by_name_embed`.
+2. If the user is searching by meaning, topic, question, or content description, call `MCP_ZVER_find_by_text_dense`.
+3. If the user needs lexical ranked search over query terms, call `MCP_ZVER_find_by_text_bm25`.
+4. If the user wants a balanced semantic + lexical result, call `MCP_ZVER_find_by_text_hybrid`.
+5. If the user knows the exact phrase, code, term, or literal text fragment, call `MCP_ZVER_find_by_text_like`.
+6. If the user knows the document name or part of it and wants that document's content, call `MCP_ZVER_all_by_name_like`.
+7. If the user does not know the exact document name but describes it semantically, and wants the full document, call `MCP_ZVER_all_by_name_dense`.
 
 ## Core Difference Between Tools
 
-- `find_by_text_embed` returns the best chunks by semantic similarity inside document text.
-- `find_by_text` returns chunks containing an exact substring match.
-- `all_by_name` finds documents by exact file-name substring and returns all chunks from matching documents.
-- `all_by_name_embed` finds documents by semantic similarity of the document name and returns all chunks from matching documents.
+- `find_by_text_dense` returns the best chunks by semantic similarity inside document text.
+- `find_by_text_bm25` returns the best chunks by lexical BM25 ranking inside document text.
+- `find_by_text_hybrid` combines dense and BM25 retrieval for document text.
+- `find_by_text_like` returns chunks containing an exact substring match.
+- `all_by_name_like` finds documents by exact file-name substring and returns all chunks from matching documents.
+- `all_by_name_dense` finds documents by semantic similarity of the document name and returns all chunks from matching documents.
 - `all_names` returns only document names, not chunks.
 
 Main rule:
 
-- if you need a short relevant answer about a topic, usually start with `find_by_text_embed`;
-- if you need the entire document, use `all_by_name` or `all_by_name_embed`.
+- if you need a short relevant answer about a topic, usually start with `find_by_text_dense`;
+- if exact terms matter but you still want ranked retrieval, use `find_by_text_bm25`;
+- if you want one default that balances semantics and term matching, use `find_by_text_hybrid`;
+- if you need the entire document, use `all_by_name_like` or `all_by_name_dense`.
 
 ## Search Result Format
 
@@ -81,8 +87,101 @@ All search tools except `all_names` return a list of objects with this structure
 
 ### How To Interpret `score`
 
-- in `find_by_text_embed` and `all_by_name_embed`, `score` is a semantic similarity score;
-- in `find_by_text` and `all_by_name`, `score` is usually `1.0`, because those tools do exact filtering, not embedding ranking.
+- in `find_by_text_dense` and `all_by_name_dense`, `score` is a semantic similarity score;
+- in `find_by_text_bm25`, `score` is a lexical BM25-style relevance score;
+- in `find_by_text_hybrid`, `score` is the hybrid reranker score after merging dense and BM25 candidates;
+- in `find_by_text_like` and `all_by_name_like`, `score` is usually `1.0`, because those tools do exact filtering, not embedding ranking.
+
+## MCP_ZVER_find_by_text_bm25
+
+### When To Use
+
+Use it for lexical ranked search inside document content.
+
+Good for:
+
+- acronym-heavy queries;
+- jargon and rare terms;
+- cases where exact query words matter, but you still want ranked results instead of raw substring filtering.
+
+### When Not To Use
+
+Do not use it if:
+
+- the user is asking a broad semantic question in their own words;
+- the wording may differ heavily from the source text;
+- the user needs the whole document.
+
+### Input
+
+- `query: str`
+  Query text for BM25 lexical ranking.
+- `top_k: int = 5`
+  Number of best chunks to return.
+
+### Behavior
+
+- empty `query` returns `[]`;
+- returns ranked chunks using the sparse BM25 index;
+- requires a collection built by the current embed pipeline.
+
+### Example Requests
+
+- "evilginx phishlet"
+- "mysql_secure_installation"
+- "klbackup"
+
+### Example Call
+
+```python
+MCP_ZVER_find_by_text_bm25(query="evilginx phishlet", top_k=10)
+```
+
+## MCP_ZVER_find_by_text_hybrid
+
+### When To Use
+
+Use it for combined dense + BM25 search inside document content.
+
+Good for:
+
+- short practical queries where both meaning and exact terms matter;
+- ambiguous queries where dense alone may drift and BM25 alone may be too narrow;
+- a strong default when the user wants search quality rather than a specific retrieval style.
+
+### When Not To Use
+
+Do not use it if:
+
+- the user explicitly needs an exact substring match;
+- the user needs the whole document rather than top chunks.
+
+### Input
+
+- `query: str`
+  Query text for hybrid retrieval.
+- `top_k: int = 5`
+  Maximum number of final chunks to return.
+- `nprobe: int = 10`
+  IVF vector search depth for the dense branch.
+
+### Behavior
+
+- empty `query` returns `[]`;
+- merges dense and BM25 candidates and re-ranks them;
+- requires a collection built by the current embed pipeline.
+
+### Example Requests
+
+- "evilginx setup"
+- "backup administration server"
+- "virus database update"
+
+### Example Call
+
+```python
+MCP_ZVER_find_by_text_hybrid(query="evilginx setup", top_k=10, nprobe=10)
+```
 
 ## MCP_ZVER_all_names
 
@@ -91,7 +190,7 @@ All search tools except `all_names` return a list of objects with this structure
 Use it when you need to:
 
 - inspect what documents exist in the collection;
-- choose a correct document name before calling `all_by_name`;
+- choose a correct document name before calling `all_by_name_like`;
 - check whether a document is present at all.
 
 ### Input
@@ -117,7 +216,7 @@ A list of strings:
 - "Do we have any document about KSCL"
 - "First find the right document name"
 
-## MCP_ZVER_find_by_text_embed
+## MCP_ZVER_find_by_text_dense
 
 ### When To Use
 
@@ -162,10 +261,10 @@ Do not use it as the first choice if:
 ### Example Call
 
 ```python
-MCP_ZVER_find_by_text_embed(query="how to install KSCL", top_k=5, nprobe=10)
+MCP_ZVER_find_by_text_dense(query="how to install KSCL", top_k=5, nprobe=10)
 ```
 
-## MCP_ZVER_find_by_text
+## MCP_ZVER_find_by_text_like
 
 ### When To Use
 
@@ -209,10 +308,10 @@ Do not use it if:
 ### Example Call
 
 ```python
-MCP_ZVER_find_by_text(query="mysql_secure_installation", top_k=10)
+MCP_ZVER_find_by_text_like(query="mysql_secure_installation", top_k=10)
 ```
 
-## MCP_ZVER_all_by_name
+## MCP_ZVER_all_by_name_like
 
 ### When To Use
 
@@ -256,10 +355,10 @@ If a matched document has `chunk_count = 144`, the result may contain 144 object
 ### Example Call
 
 ```python
-MCP_ZVER_all_by_name(query="Project KSC for Linux Guide")
+MCP_ZVER_all_by_name_like(query="Project KSC for Linux Guide")
 ```
 
-## MCP_ZVER_all_by_name_embed
+## MCP_ZVER_all_by_name_dense
 
 ### When To Use
 
@@ -280,7 +379,7 @@ Reason:
 - it returns all chunks from matched documents, not only the best chunks;
 - even one matched document can produce a very large response.
 
-If the goal is a compact topical answer, `find_by_text_embed` is usually better.
+If the goal is a compact topical answer, `find_by_text_dense` is usually better.
 
 ### Input
 
@@ -309,42 +408,56 @@ That means:
 ### Example Call
 
 ```python
-MCP_ZVER_all_by_name_embed(query="document about KSCL installation", top_k=1, nprobe=10)
+MCP_ZVER_all_by_name_dense(query="document about KSCL installation", top_k=1, nprobe=10)
 ```
 
 ## Recommended Usage Strategies
 
 ### Strategy 1: Short Answer To A User Question
 
-1. Call `MCP_ZVER_find_by_text_embed`.
+1. Call `MCP_ZVER_find_by_text_dense`.
 2. Use the top 3-5 best chunks.
 3. Build the answer from those chunks.
 4. If useful, mention the source document via `metadata.path` and `name`.
 
+### Strategy 1a: Term-Sensitive Ranked Search
+
+1. Call `MCP_ZVER_find_by_text_bm25`.
+2. Use the top 3-5 best chunks.
+3. Prefer this when the user query contains important exact terms.
+
+### Strategy 1b: Best General Text Retrieval
+
+1. Call `MCP_ZVER_find_by_text_hybrid`.
+2. Use the top 3-5 best chunks.
+3. Prefer this when both semantics and exact terms may matter.
+
 ### Strategy 2: User Knows The Exact Phrase Or Command
 
-1. Call `MCP_ZVER_find_by_text`.
+1. Call `MCP_ZVER_find_by_text_like`.
 2. Find literal matches.
 3. Use those chunks as exact evidence.
 
 ### Strategy 3: User Wants A Specific Document
 
 1. If the name is unknown, call `MCP_ZVER_all_names`.
-2. If the name is already known, call `MCP_ZVER_all_by_name`.
-3. If the name is unknown but the document can be described semantically, call `MCP_ZVER_all_by_name_embed`.
+2. If the name is already known, call `MCP_ZVER_all_by_name_like`.
+3. If the name is unknown but the document can be described semantically, call `MCP_ZVER_all_by_name_dense`.
 
 ### Strategy 4: First Find The Document, Then Answer Briefly
 
-1. Call `MCP_ZVER_all_by_name_embed` or `MCP_ZVER_all_names`.
+1. Call `MCP_ZVER_all_by_name_dense` or `MCP_ZVER_all_names`.
 2. Identify the target document.
-3. Then, if the goal is not the whole document but a precise answer, call `MCP_ZVER_find_by_text_embed` or `MCP_ZVER_find_by_text` with a narrower query.
+3. Then, if the goal is not the whole document but a precise answer, call `MCP_ZVER_find_by_text_dense` or `MCP_ZVER_find_by_text_like` with a narrower query.
 
 ## Practical Rules
 
-- Do not start with `all_by_name_embed` if the user simply asks a topical question. It often returns too many chunks.
-- If the user clearly needs the whole document, then `all_by_name` or `all_by_name_embed` is appropriate.
-- If quotation accuracy matters, use `find_by_text`.
-- If semantic relevance matters, use `find_by_text_embed`.
+- Do not start with `all_by_name_dense` if the user simply asks a topical question. It often returns too many chunks.
+- If the user clearly needs the whole document, then `all_by_name_like` or `all_by_name_dense` is appropriate.
+- If query wording matters and you still want ranking, use `find_by_text_bm25`.
+- If you want the strongest general text-search default, use `find_by_text_hybrid`.
+- If quotation accuracy matters, use `find_by_text_like`.
+- If semantic relevance matters, use `find_by_text_dense`.
 - If you first need to know what is available, use `all_names`.
 
 ## How To Explain Results To The User
@@ -364,9 +477,11 @@ When the result is too large:
 ## Short Cheat Sheet
 
 - `all_names`: list available documents.
-- `find_by_text_embed`: best chunks by semantic content.
-- `find_by_text`: exact text match.
-- `all_by_name`: full document by exact name fragment.
-- `all_by_name_embed`: full document by semantic document name.
+- `find_by_text_dense`: best chunks by semantic content.
+- `find_by_text_bm25`: best chunks by lexical BM25 ranking.
+- `find_by_text_hybrid`: best chunks by dense + BM25 retrieval.
+- `find_by_text_like`: exact text match.
+- `all_by_name_like`: full document by exact name fragment.
+- `all_by_name_dense`: full document by semantic document name.
 
-If you are unsure between `find_by_text_embed` and `all_by_name_embed`, almost always start with `find_by_text_embed`.
+If you are unsure between `find_by_text_dense`, `find_by_text_bm25`, and `find_by_text_hybrid`, start with `find_by_text_hybrid` for a compact answer and `all_by_name_dense` only when the whole document is needed.

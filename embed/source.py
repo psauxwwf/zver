@@ -6,6 +6,8 @@ from typing import Iterable
 
 from docling.document_converter import DocumentConverter
 from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from sentence_transformers import SentenceTransformer
 
 
 def get_source_files(
@@ -30,6 +32,29 @@ def convert_file(
     doc = converter.convert(source=str(path)).document
     chunk_iter = chunker.chunk(dl_doc=doc)
     return [chunker.contextualize(chunk=chunk) for chunk in chunk_iter]
+
+
+def build_hybrid_chunker(transformer: SentenceTransformer) -> HybridChunker:
+    tokenizer = HuggingFaceTokenizer(tokenizer=transformer.tokenizer)
+    return HybridChunker(tokenizer=tokenizer, merge_peers=True)
+
+
+def get_chunks(
+    path: Path,
+    converter: DocumentConverter,
+    chunker: HybridChunker,
+    by_source: bool,
+    chunk_min_chars: int,
+) -> list[str]:
+    chunks = convert_file(path, converter, chunker)
+
+    if by_source:
+        full_text = "\n\n".join(chunk.strip() for chunk in chunks if chunk.strip())
+        if not full_text:
+            return []
+        return [full_text]
+
+    return merge_chunks(chunks, chunk_min_chars)
 
 
 def merge_chunks(

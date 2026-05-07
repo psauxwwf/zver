@@ -10,6 +10,7 @@ from zvec import (
     CollectionSchema,
     DataType,
     FieldSchema,
+    HnswIndexParam,
     IVFIndexParam,
     MetricType,
     VectorSchema,
@@ -23,6 +24,8 @@ TEXT_FIELD = "text"
 METADATA_FIELD = "metadata"
 NAME_EMBEDDING_FIELD = "name_embedding"
 TEXT_EMBEDDING_FIELD = "text_embedding"
+TEXT_SPARSE_EMBEDDING_FIELD = "text_sparse_embedding"
+EMBED_CONFIG_FILENAME = "_embed_config.json"
 
 
 def _ensure_zvec_initialized() -> None:
@@ -44,6 +47,29 @@ def serialize_metadata(metadata: object) -> str:
     return json.dumps(metadata, ensure_ascii=False)
 
 
+def _collection_path(collection_name: str, zvec_uri: str | Path) -> Path:
+    return Path(zvec_uri) / collection_name
+
+
+def write_embed_config(
+    collection_name: str,
+    zvec_uri: str | Path,
+    config: dict[str, object],
+) -> None:
+    config_path = _collection_path(collection_name, zvec_uri) / EMBED_CONFIG_FILENAME
+    config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+
+
+def read_embed_config(
+    collection_name: str,
+    zvec_uri: str | Path,
+) -> dict[str, object] | None:
+    config_path = _collection_path(collection_name, zvec_uri) / EMBED_CONFIG_FILENAME
+    if not config_path.exists():
+        return None
+    return json.loads(config_path.read_text())
+
+
 def get_or_create_collection(
     collection_name: str,
     zvec_uri: str,
@@ -51,7 +77,7 @@ def get_or_create_collection(
 ) -> Collection:
     _ensure_zvec_initialized()
 
-    collection_path = Path(zvec_uri) / collection_name
+    collection_path = _collection_path(collection_name, zvec_uri)
     collection_path_str = str(collection_path)
 
     collection = _OPEN_COLLECTIONS.get(collection_path_str)
@@ -89,6 +115,14 @@ def get_or_create_collection(
                 index_param=IVFIndexParam(
                     metric_type=MetricType.COSINE,
                     n_list=1024,
+                ),
+            ),
+            VectorSchema(
+                name=TEXT_SPARSE_EMBEDDING_FIELD,
+                data_type=DataType.SPARSE_VECTOR_FP32,
+                index_param=HnswIndexParam(
+                    ef_construction=100,
+                    m=8,
                 ),
             ),
         ],

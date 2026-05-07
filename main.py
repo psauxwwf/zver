@@ -29,13 +29,18 @@ from search.search import (
 from search.types import search_results_to_jsonable
 
 
+COLLECTION_LAYOUT_VERSION = 2
+
+
 def _get_collection_name(docs_dir: Path) -> str:
     resolved = docs_dir.expanduser().resolve()
     base_name = "".join(
         char if char.isalnum() or char in "-_." else "_"
         for char in (resolved.name or "docs")
     ).strip("-_.")
-    digest = hashlib.sha256(resolved.as_posix().encode()).hexdigest()[:12]
+    digest = hashlib.sha256(
+        f"{resolved.as_posix()}\0v{COLLECTION_LAYOUT_VERSION}".encode()
+    ).hexdigest()[:12]
     return f"{(base_name or 'docs')[:48]}-{digest}"
 
 
@@ -75,6 +80,7 @@ def _build_search_context_or_log_error(
         return build_context(
             collection_name=query_collection_name,
             zvec_uri=zvec_uri,
+            docs_dir=docs_dir,
             embed_model=embed_model,
             models_dir=DEFAULT_MODELS_DIR,
         )

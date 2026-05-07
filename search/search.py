@@ -7,17 +7,29 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from docling.document_converter import DocumentConverter
 import zvec
 from sentence_transformers import SentenceTransformer
-from zvec import Collection, CollectionOption, Doc, IVFQueryParam, VectorQuery
+from zvec import (
+    BM25EmbeddingFunction,
+    Collection,
+    CollectionOption,
+    Doc,
+    IVFQueryParam,
+    RrfReRanker,
+    VectorQuery,
+)
 
 from embed.model import build_sentence_transformer
+from embed.source import build_hybrid_chunker, get_chunks, get_source_files
 from embed.store import (
     METADATA_FIELD,
     NAME_EMBEDDING_FIELD,
     NAME_FIELD,
+    TEXT_SPARSE_EMBEDDING_FIELD,
     TEXT_EMBEDDING_FIELD,
     TEXT_FIELD,
+    read_embed_config,
 )
 from .types import SearchResult
 
@@ -25,10 +37,15 @@ from .types import SearchResult
 MAX_QUERY_TOP_K = 1024
 
 
-@dataclass(frozen=True)
+@dataclass
 class SearchContext:
     collection: Collection
     transformer: SentenceTransformer
+    collection_name: str
+    zvec_uri: Path
+    docs_dir: Path
+    text_bm25_query_encoder: BM25EmbeddingFunction | None = None
+    text_bm25_query_encoder_loaded: bool = False
 
 
 def _configure_model_storage(models_dir: Path) -> None:
@@ -52,6 +69,7 @@ def _collection_path(collection_name: str, zvec_uri: Path) -> Path:
 def build_context(
     collection_name: str,
     zvec_uri: Path,
+    docs_dir: Path,
     embed_model: str,
     models_dir: Path,
 ) -> SearchContext:
@@ -66,7 +84,70 @@ def build_context(
         str(collection_path), option=CollectionOption(read_only=True)
     )
     transformer = build_sentence_transformer(embed_model, models_dir)
-    return SearchContext(collection=collection, transformer=transformer)
+    return SearchContext(
+        collection=collection,
+        transformer=transformer,
+        collection_name=collection_name,
+        zvec_uri=zvec_uri,
+        docs_dir=docs_dir,
+    )
+
+
+def _build_text_bm25_query_encoder(
+    collection_name: str,
+    zvec_uri: Path,
+    docs_dir: Path,
+    transformer: SentenceTransformer,
+) -> BM25EmbeddingFunction | None:
+    if not docs_dir.exists() or not docs_dir.is_dir():
+        return None
+
+    config = read_embed_config(collection_name, zvec_uri)
+    if config is None:
+        return None
+
+    chunk_min_chars = int(config.get("chunk_min_chars", 256))
+    by_source = bool(config.get("by_source", False))
+    include_ext = config.get("include_ext")
+    if include_ext is not None and not isinstance(include_ext, list):
+        include_ext = None
+
+    converter = DocumentConverter()
+    chunker = build_hybrid_chunker(transformer)
+    corpus: list[str] = []
+
+    for path in get_source_files(docs_dir, include_ext):
+        try:
+            corpus.extend(
+                get_chunks(
+                    path=path,
+                    converter=converter,
+                    chunker=chunker,
+                    by_source=by_source,
+                    chunk_min_chars=chunk_min_chars,
+                )
+            )
+        except Exception:
+            continue
+
+    if not corpus:
+        return None
+
+    return BM25EmbeddingFunction(corpus=corpus, encoding_type="query")
+
+
+def _ensure_text_bm25_query_encoder(ctx: SearchContext) -> BM25EmbeddingFunction | None:
+    if ctx.text_bm25_query_encoder_loaded:
+        return ctx.text_bm25_query_encoder
+
+    ctx.text_bm25_query_encoder = _build_text_bm25_query_encoder(
+        collection_name=ctx.collection_name,
+        zvec_uri=ctx.zvec_uri,
+        docs_dir=ctx.docs_dir,
+        transformer=ctx.transformer,
+    )
+    ctx.text_bm25_query_encoder_loaded = True
+    return ctx.text_bm25_query_encoder
 
 
 def _json_literal(value: str) -> str:
@@ -144,7 +225,7 @@ def _run_name_query(collection: Collection) -> list[Doc]:
     )
 
 
-def find_by_text_embed(
+def find_by_text_dense(
     ctx: SearchContext,
     query: str,
     top_k: int,
@@ -167,7 +248,83 @@ def find_by_text_embed(
     return [_doc_to_result(doc) for doc in docs]
 
 
-def find_by_text(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
+def _build_text_bm25_query_vector(
+    ctx: SearchContext,
+    query_value: str,
+) -> dict[int, float]:
+    if ctx.collection.schema.vector(TEXT_SPARSE_EMBEDDING_FIELD) is None:
+        raise RuntimeError(
+            "BM25 search is unavailable for this collection. Re-run embedding with the current version to build sparse vectors."
+        )
+
+    encoder = _ensure_text_bm25_query_encoder(ctx)
+    if encoder is None:
+        raise RuntimeError(
+            "BM25 search is unavailable for this collection. Re-run embedding with the current version to build sparse vectors."
+        )
+
+    sparse_vector = encoder.embed(query_value)
+    if not sparse_vector:
+        return {}
+    return sparse_vector
+
+
+def find_by_text_bm25(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
+    query_value = query.strip()
+    if not query_value:
+        return []
+
+    sparse_vector = _build_text_bm25_query_vector(ctx, query_value)
+    if not sparse_vector:
+        return []
+
+    docs = ctx.collection.query(
+        vectors=VectorQuery(
+            field_name=TEXT_SPARSE_EMBEDDING_FIELD,
+            vector=sparse_vector,
+        ),
+        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
+        output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
+    )
+    return [_doc_to_result(doc) for doc in docs]
+
+
+def find_by_text_hybrid(
+    ctx: SearchContext,
+    query: str,
+    top_k: int,
+    nprobe: int,
+) -> list[SearchResult]:
+    query_value = query.strip()
+    if not query_value:
+        return []
+
+    sparse_vector = _build_text_bm25_query_vector(ctx, query_value)
+    if not sparse_vector:
+        return find_by_text_dense(ctx, query_value, top_k, nprobe)
+
+    dense_vector = ctx.transformer.encode([query_value]).tolist()[0]
+    effective_top_k = min(max(top_k, 1), MAX_QUERY_TOP_K)
+    docs = ctx.collection.query(
+        vectors=[
+            VectorQuery(
+                field_name=TEXT_EMBEDDING_FIELD,
+                vector=dense_vector,
+                param=IVFQueryParam(nprobe=nprobe),
+            ),
+            VectorQuery(
+                field_name=TEXT_SPARSE_EMBEDDING_FIELD,
+                vector=sparse_vector,
+            ),
+        ],
+        topk=effective_top_k,
+        reranker=RrfReRanker(topn=effective_top_k),
+        output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
+    )
+    return [_doc_to_result(doc) for doc in docs]
+
+
+def find_by_text_like(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -180,7 +337,7 @@ def find_by_text(ctx: SearchContext, query: str, top_k: int) -> list[SearchResul
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
-def all_by_name(ctx: SearchContext, query: str) -> list[SearchResult]:
+def all_by_name_like(ctx: SearchContext, query: str) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -208,7 +365,7 @@ def all_chunks(ctx: SearchContext) -> list[SearchResult]:
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
-def all_by_name_embed(
+def all_by_name_dense(
     ctx: SearchContext,
     query: str,
     top_k: int,
@@ -249,10 +406,12 @@ def run_search(
     nprobe: int,
 ) -> list[SearchResult]:
     handlers = {
-        "find_by_text_embed": lambda: find_by_text_embed(ctx, query, top_k, nprobe),
-        "find_by_text": lambda: find_by_text(ctx, query, top_k),
-        "all_by_name": lambda: all_by_name(ctx, query),
-        "all_by_name_embed": lambda: all_by_name_embed(ctx, query, top_k, nprobe),
+        "find_by_text_dense": lambda: find_by_text_dense(ctx, query, top_k, nprobe),
+        "find_by_text_bm25": lambda: find_by_text_bm25(ctx, query, top_k),
+        "find_by_text_hybrid": lambda: find_by_text_hybrid(ctx, query, top_k, nprobe),
+        "find_by_text_like": lambda: find_by_text_like(ctx, query, top_k),
+        "all_by_name_like": lambda: all_by_name_like(ctx, query),
+        "all_by_name_dense": lambda: all_by_name_dense(ctx, query, top_k, nprobe),
     }
 
     handler = handlers.get(mode)

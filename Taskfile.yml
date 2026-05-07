@@ -13,6 +13,27 @@ tasks:
     cmds:
       - mkdir -p "{{.bin}}"
 
+  check:python:
+    desc: compile all repository Python files
+    cmds:
+      - |
+        uv run python - <<'PY'
+        from pathlib import Path
+        import py_compile
+
+        skip_dirs = {".git", ".venv", "__pycache__", "data", "bin", ".cache"}
+
+        for path in sorted(Path(".").rglob("*.py")):
+            if any(part in skip_dirs for part in path.parts):
+                continue
+            py_compile.compile(str(path), doraise=True)
+        PY
+
+  test:
+    desc: run query smoke test against current database
+    cmds:
+      - uv run python tests/query_current_db.py
+
   build:python:
     desc: build server
     deps:

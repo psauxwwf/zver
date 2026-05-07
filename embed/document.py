@@ -10,6 +10,7 @@ from .store import (
     NAME_EMBEDDING_FIELD,
     NAME_FIELD,
     TEXT_EMBEDDING_FIELD,
+    TEXT_SPARSE_EMBEDDING_FIELD,
     TEXT_FIELD,
     serialize_metadata,
 )
@@ -51,14 +52,15 @@ def build_docs(
     path: Path,
     chunks: list[str],
     text_embeddings: list[list[float]],
+    text_sparse_embeddings: list[dict[int, float]],
     name_embedding: list[float],
 ) -> list[Doc]:
     name = normalize_source_name(path)
     chunk_count = len(chunks)
     docs: list[Doc] = []
 
-    for chunk_index, (chunk, text_embedding) in enumerate(
-        zip(chunks, text_embeddings, strict=True)
+    for chunk_index, (chunk, text_embedding, text_sparse_embedding) in enumerate(
+        zip(chunks, text_embeddings, text_sparse_embeddings, strict=True)
     ):
         docs.append(
             Doc(
@@ -71,6 +73,7 @@ def build_docs(
                 vectors={
                     NAME_EMBEDDING_FIELD: name_embedding,
                     TEXT_EMBEDDING_FIELD: text_embedding,
+                    TEXT_SPARSE_EMBEDDING_FIELD: text_sparse_embedding,
                 },
             )
         )
