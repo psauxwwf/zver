@@ -21,7 +21,7 @@ from embed.store import (
 )
 
 
-DEFAULT_ALL_BY_NAME_LIMIT = 16384
+MAX_QUERY_TOP_K = 1024
 
 
 @dataclass(frozen=True)
@@ -125,7 +125,7 @@ def _run_filter_query(
     topk: int,
 ) -> list[Doc]:
     return collection.query(
-        topk=max(topk, 1),
+        topk=min(max(topk, 1), MAX_QUERY_TOP_K),
         filter=filter_value,
         output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
     )
@@ -134,7 +134,7 @@ def _run_filter_query(
 def _run_all_by_name_filter(
     collection: Collection, filter_value: str | None
 ) -> list[Doc]:
-    return _run_filter_query(collection, filter_value, DEFAULT_ALL_BY_NAME_LIMIT)
+    return _run_filter_query(collection, filter_value, MAX_QUERY_TOP_K)
 
 
 def find_by_text_embed(
@@ -154,7 +154,7 @@ def find_by_text_embed(
             vector=vector,
             param=IVFQueryParam(nprobe=nprobe),
         ),
-        topk=max(top_k, 1),
+        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
         output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
     )
     return [_doc_to_result(doc) for doc in docs]
@@ -202,7 +202,7 @@ def all_by_name_embed(
             vector=vector,
             param=IVFQueryParam(nprobe=nprobe),
         ),
-        topk=max(top_k, 1),
+        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
         output_fields=[NAME_FIELD],
     )
     candidate_names = _unique_names(candidate_docs, max(top_k, 1))
