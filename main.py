@@ -26,6 +26,7 @@ from search.search import (
     build_context,
     run_search,
 )
+from search.types import search_results_to_jsonable
 
 
 def _get_collection_name(docs_dir: Path) -> str:
@@ -153,7 +154,13 @@ def main() -> int:
             return 0
 
         if args.all:
-            print(json.dumps(all_chunks(ctx), ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    search_results_to_jsonable(all_chunks(ctx)),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return 0
 
         results = run_search(
@@ -163,7 +170,13 @@ def main() -> int:
             top_k=args.top_k,
             nprobe=args.nprobe,
         )
-        print(json.dumps(results, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                search_results_to_jsonable(results),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     return load_documents(

@@ -19,6 +19,7 @@ from embed.store import (
     TEXT_EMBEDDING_FIELD,
     TEXT_FIELD,
 )
+from .types import SearchResult
 
 
 MAX_QUERY_TOP_K = 1024
@@ -82,18 +83,17 @@ def _parse_metadata(value: object) -> object:
         return value
 
 
-def _doc_to_result(doc: Doc, score: float | None = None) -> dict:
-    result = {
-        "id": doc.id,
-        "name": doc.field(NAME_FIELD),
-        "text": doc.field(TEXT_FIELD),
-        "metadata": _parse_metadata(doc.field(METADATA_FIELD)),
-    }
-    if score is not None:
-        result["score"] = score
-    elif doc.score is not None:
-        result["score"] = float(doc.score)
-    return result
+def _doc_to_result(doc: Doc, score: float | None = None) -> SearchResult:
+    result_score = score if score is not None else float(doc.score or 0.0)
+    return SearchResult.model_validate(
+        {
+            "id": doc.id,
+            "name": doc.field(NAME_FIELD),
+            "text": doc.field(TEXT_FIELD),
+            "metadata": _parse_metadata(doc.field(METADATA_FIELD)),
+            "score": result_score,
+        }
+    )
 
 
 def _unique_names(docs: list[Doc], limit: int) -> list[tuple[str, float]]:
@@ -149,7 +149,7 @@ def find_by_text_embed(
     query: str,
     top_k: int,
     nprobe: int,
-) -> list[dict]:
+) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -167,7 +167,7 @@ def find_by_text_embed(
     return [_doc_to_result(doc) for doc in docs]
 
 
-def find_by_text(ctx: SearchContext, query: str, top_k: int) -> list[dict]:
+def find_by_text(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -180,7 +180,7 @@ def find_by_text(ctx: SearchContext, query: str, top_k: int) -> list[dict]:
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
-def all_by_name(ctx: SearchContext, query: str) -> list[dict]:
+def all_by_name(ctx: SearchContext, query: str) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -203,7 +203,7 @@ def all_names(ctx: SearchContext) -> list[str]:
     return sorted(names)
 
 
-def all_chunks(ctx: SearchContext) -> list[dict]:
+def all_chunks(ctx: SearchContext) -> list[SearchResult]:
     docs = _run_filter_query(ctx.collection, None, MAX_QUERY_TOP_K)
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
@@ -213,7 +213,7 @@ def all_by_name_embed(
     query: str,
     top_k: int,
     nprobe: int,
-) -> list[dict]:
+) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
@@ -247,7 +247,7 @@ def run_search(
     query: str,
     top_k: int,
     nprobe: int,
-) -> list[dict]:
+) -> list[SearchResult]:
     handlers = {
         "find_by_text_embed": lambda: find_by_text_embed(ctx, query, top_k, nprobe),
         "find_by_text": lambda: find_by_text(ctx, query, top_k),
