@@ -21,6 +21,7 @@ from search.mcp import (
     build_mcp_server,
 )
 from search.search import (
+    all_chunks,
     all_names,
     build_context,
     run_search,
@@ -149,6 +150,10 @@ def main() -> int:
 
         if args.list:
             print(json.dumps(all_names(ctx), ensure_ascii=False, indent=2))
+            return 0
+
+        if args.all:
+            print(json.dumps(all_chunks(ctx), ensure_ascii=False, indent=2))
             return 0
 
         results = run_search(

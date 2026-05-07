@@ -203,6 +203,11 @@ def all_names(ctx: SearchContext) -> list[str]:
     return sorted(names)
 
 
+def all_chunks(ctx: SearchContext) -> list[dict]:
+    docs = _run_filter_query(ctx.collection, None, MAX_QUERY_TOP_K)
+    return [_doc_to_result(doc, score=1.0) for doc in docs]
+
+
 def all_by_name_embed(
     ctx: SearchContext,
     query: str,

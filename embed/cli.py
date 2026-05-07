@@ -149,6 +149,11 @@ def parse_args() -> argparse.Namespace:
         help="List all distinct file names",
     )
     query_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Return all chunks",
+    )
+    query_parser.add_argument(
         "query",
         nargs="?",
         default="",
