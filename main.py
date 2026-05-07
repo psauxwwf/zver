@@ -14,7 +14,17 @@ from embed.cli import (
     parse_args,
 )
 from embed.load import load_documents
-from search.search import build_context, run_search
+from search.mcp import (
+    MCP_HOST,
+    MCP_PATH,
+    MCP_PORT,
+    build_mcp_server,
+)
+from search.search import (
+    all_names,
+    build_context,
+    run_search,
+)
 
 
 def _get_collection_name(docs_dir: Path) -> str:
@@ -47,6 +57,55 @@ def _resolve_query_collection_name(
     return requested_collection
 
 
+def _build_search_context_or_log_error(
+    docs_dir: Path,
+    zvec_uri: Path,
+    docs_arg: str,
+    embed_model: str,
+    command: str,
+    mode: str | None,
+    query: str | None,
+):
+    collection_name = _get_collection_name(docs_dir)
+    query_collection_name = _resolve_query_collection_name(docs_dir, zvec_uri, docs_arg)
+
+    try:
+        return build_context(
+            collection_name=query_collection_name,
+            zvec_uri=zvec_uri,
+            embed_model=embed_model,
+            models_dir=DEFAULT_MODELS_DIR,
+        )
+    except FileNotFoundError as exc:
+        available_collections = _list_collection_names(zvec_uri)
+        logging.error("%s", exc)
+        logging.error(
+            "Query collection is derived from --docs; current --docs=%s maps to collection '%s'",
+            docs_dir,
+            collection_name,
+        )
+        if available_collections:
+            logging.error(
+                "Available collections under %s: %s",
+                zvec_uri,
+                ", ".join(available_collections),
+            )
+        if command == "query" and mode is not None:
+            logging.error(
+                "Pass the same --docs path you used for ingestion, for example: ./main.py query --docs %s --mode=%s %r",
+                docs_dir,
+                mode,
+                query or "",
+            )
+        else:
+            logging.error(
+                "Pass the same --docs path you used for ingestion, for example: ./main.py %s --docs %s",
+                command,
+                docs_dir,
+            )
+        return None
+
+
 def main() -> int:
     args = normalize_args(parse_args())
     docs_dir = Path(args.docs)
@@ -57,32 +116,40 @@ def main() -> int:
         format="%(levelname)s: %(message)s",
     )
 
-    if args.query is not None:
-        query_collection_name = _resolve_query_collection_name(docs_dir, zvec_uri, args.docs)
-        try:
-            ctx = build_context(
-                collection_name=query_collection_name,
-                zvec_uri=zvec_uri,
-                embed_model=args.embed_model,
-                models_dir=DEFAULT_MODELS_DIR,
-            )
-        except FileNotFoundError as exc:
-            available_collections = _list_collection_names(zvec_uri)
-            logging.error("%s", exc)
-            logging.error(
-                "Query collection is derived from --docs; current --docs=%s maps to collection '%s'",
-                docs_dir,
-                collection_name,
-            )
-            if available_collections:
-                logging.error("Available collections under %s: %s", args.zvec_uri, ", ".join(available_collections))
-            logging.error(
-                "Pass the same --docs path you used for ingestion, for example: ./main.py --docs %s --mode=%s --query=%r",
-                docs_dir,
-                args.mode,
-                args.query,
-            )
+    if args.command == "mcp":
+        ctx = _build_search_context_or_log_error(
+            docs_dir=docs_dir,
+            zvec_uri=zvec_uri,
+            docs_arg=args.docs,
+            embed_model=args.embed_model,
+            command=args.command,
+            mode=None,
+            query=None,
+        )
+        if ctx is None:
             return 1
+        logging.info(
+            "Starting MCP server at http://%s:%s%s", MCP_HOST, MCP_PORT, MCP_PATH
+        )
+        build_mcp_server(ctx).run(transport="streamable-http")
+        return 0
+
+    if args.command == "query":
+        ctx = _build_search_context_or_log_error(
+            docs_dir=docs_dir,
+            zvec_uri=zvec_uri,
+            docs_arg=args.docs,
+            embed_model=args.embed_model,
+            command=args.command,
+            mode=args.mode,
+            query=args.query,
+        )
+        if ctx is None:
+            return 1
+
+        if args.list:
+            print(json.dumps(all_names(ctx), ensure_ascii=False, indent=2))
+            return 0
 
         results = run_search(
             ctx=ctx,

@@ -137,6 +137,13 @@ def _run_all_by_name_filter(
     return _run_filter_query(collection, filter_value, MAX_QUERY_TOP_K)
 
 
+def _run_name_query(collection: Collection) -> list[Doc]:
+    return collection.query(
+        topk=MAX_QUERY_TOP_K,
+        output_fields=[NAME_FIELD],
+    )
+
+
 def find_by_text_embed(
     ctx: SearchContext,
     query: str,
@@ -183,6 +190,17 @@ def all_by_name(ctx: SearchContext, query: str) -> list[dict]:
         f"{NAME_FIELD} LIKE {_json_literal(f'%{query_value}%')}",
     )
     return [_doc_to_result(doc, score=1.0) for doc in docs]
+
+
+def all_names(ctx: SearchContext) -> list[str]:
+    docs = _run_name_query(ctx.collection)
+    names = {
+        name
+        for doc in docs
+        for name in [doc.field(NAME_FIELD)]
+        if isinstance(name, str) and name
+    }
+    return sorted(names)
 
 
 def all_by_name_embed(
