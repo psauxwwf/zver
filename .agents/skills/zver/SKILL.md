@@ -43,6 +43,15 @@ Main rule:
 - if you want one default that balances semantics and term matching, use `find_by_text_hybrid`;
 - if you need the entire document, use `all_by_name_like` or `all_by_name_dense`.
 
+## When To Prefer Each Method
+
+- `find_by_text_dense`: best when the user asks by meaning and the exact wording in the document may differ.
+- `find_by_text_bm25`: best when exact query terms matter, especially jargon, acronyms, commands, and rare terms.
+- `find_by_text_hybrid`: best default for text search when both meaning and exact terms may matter.
+- `find_by_text_like`: best when literal substring matching is required.
+- `all_by_name_like`: best when the document name is already known.
+- `all_by_name_dense`: best when the document name is unknown but its meaning is known.
+
 ## Search Result Format
 
 All search tools except `all_names` return a list of objects with this structure:
@@ -96,7 +105,7 @@ All search tools except `all_names` return a list of objects with this structure
 
 ### When To Use
 
-Use it for lexical ranked search inside document content.
+Use it for lexical ranked search when exact query terms matter and you want BM25-style relevance instead of a raw substring filter.
 
 Good for:
 
@@ -115,14 +124,14 @@ Do not use it if:
 ### Input
 
 - `query: str`
-  Query text for BM25 lexical ranking.
+  Natural-language or keyword query for lexical BM25 search in document content.
 - `top_k: int = 5`
   Number of best chunks to return.
 
 ### Behavior
 
 - empty `query` returns `[]`;
-- returns ranked chunks using the sparse BM25 index;
+- returns matching document chunks with BM25-style ranking;
 - requires a collection built by the current embed pipeline.
 
 ### Example Requests
@@ -141,7 +150,7 @@ MCP_ZVER_find_by_text_bm25(query="evilginx phishlet", top_k=10)
 
 ### When To Use
 
-Use it for combined dense + BM25 search inside document content.
+Use it for combined semantic and lexical retrieval over document content. It mixes dense vector search with BM25-style sparse search and re-ranks the merged candidates.
 
 Good for:
 
@@ -159,16 +168,16 @@ Do not use it if:
 ### Input
 
 - `query: str`
-  Query text for hybrid retrieval.
+  Natural-language query for hybrid dense plus BM25 search in document content.
 - `top_k: int = 5`
-  Maximum number of final chunks to return.
+  Maximum number of matching chunks to return after re-ranking.
 - `nprobe: int = 10`
-  IVF vector search depth for the dense branch.
+  IVF vector-search breadth for the dense branch. Higher values may improve recall at the cost of more work.
 
 ### Behavior
 
 - empty `query` returns `[]`;
-- merges dense and BM25 candidates and re-ranks them;
+- mixes dense and BM25 candidates and re-ranks the merged results;
 - requires a collection built by the current embed pipeline.
 
 ### Example Requests
@@ -220,7 +229,7 @@ A list of strings:
 
 ### When To Use
 
-Use it for semantic search inside document content.
+Use for semantic content search when the query describes meaning, topic, or intent and exact wording may differ from the source text.
 
 Good for:
 
@@ -239,11 +248,11 @@ Do not use it as the first choice if:
 ### Input
 
 - `query: str`
-  Natural-language semantic query.
+  Natural-language query for semantic search in document content. Use topics, questions, paraphrases, or intent descriptions.
 - `top_k: int = 5`
-  Number of best chunks to return.
+  Maximum number of matching chunks to return. Higher values return more candidates.
 - `nprobe: int = 10`
-  IVF vector search depth. Higher values can improve recall but make the search heavier.
+  IVF vector-search breadth. Higher values may improve recall at the cost of more work.
 
 ### Behavior
 
@@ -268,7 +277,7 @@ MCP_ZVER_find_by_text_dense(query="how to install KSCL", top_k=5, nprobe=10)
 
 ### When To Use
 
-Use it for exact substring search inside document text.
+Use for exact or near-exact substring search when you expect the source text to contain the same words, codes, names, or phrases.
 
 Good for:
 
@@ -288,7 +297,7 @@ Do not use it if:
 ### Input
 
 - `query: str`
-  Exact string to search for in chunk text.
+  Exact text fragment to find inside chunk text. Best for literal phrases, identifiers, codes, or known wording.
 - `top_k: int = 5`
   Number of matching chunks to return.
 
@@ -315,7 +324,7 @@ MCP_ZVER_find_by_text_like(query="mysql_secure_installation", top_k=10)
 
 ### When To Use
 
-Use it when the user knows the document name or a clear fragment of it and wants the content of the whole document.
+Use when the user knows all or part of the file name and wants the full content for every matching source.
 
 Good for:
 
@@ -334,7 +343,7 @@ Do not use it if:
 ### Input
 
 - `query: str`
-  Exact substring to match against the document `name`.
+  Exact substring to match against normalized file names. Use when the document name or part of it is already known.
 
 ### Behavior
 
@@ -362,7 +371,7 @@ MCP_ZVER_all_by_name_like(query="Project KSC for Linux Guide")
 
 ### When To Use
 
-Use it when the user describes the desired document semantically but does not know the exact document name, and the full document content is needed.
+Use when the user refers to a document by approximate meaning or paraphrased title and you need the full contents of the most relevant files.
 
 Good for:
 
@@ -384,11 +393,11 @@ If the goal is a compact topical answer, `find_by_text_dense` is usually better.
 ### Input
 
 - `query: str`
-  Semantic description of the desired document.
+  Natural-language description of the desired document name or title. Use when the exact file name is unknown.
 - `top_k: int = 5`
-  Number of candidate document names to keep after semantic name search.
+  Maximum number of candidate file names to keep before returning all chunks for those files.
 - `nprobe: int = 10`
-  IVF vector search depth for document-name embedding search.
+  IVF vector-search breadth for semantic file-name matching. Higher values may improve recall.
 
 ### Important `top_k` Detail
 

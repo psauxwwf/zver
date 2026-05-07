@@ -10,8 +10,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from embed.cli import (
-    MODE_ALL_BY_NAME_DENSE,
-    MODE_ALL_BY_NAME_LIKE,
     DEFAULT_MODELS_DIR,
     MODE_FIND_BY_TEXT_BM25,
     MODE_FIND_BY_TEXT_DENSE,
@@ -31,8 +29,8 @@ ALL_QUERY_MODES = (
     MODE_FIND_BY_TEXT_BM25,
     MODE_FIND_BY_TEXT_HYBRID,
     MODE_FIND_BY_TEXT_LIKE,
-    MODE_ALL_BY_NAME_LIKE,
-    MODE_ALL_BY_NAME_DENSE,
+    # MODE_ALL_BY_NAME_LIKE,
+    # MODE_ALL_BY_NAME_DENSE,
 )
 
 
