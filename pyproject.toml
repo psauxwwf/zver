@@ -8,6 +8,7 @@ dependencies = [
   "dashtext>=0.0.7",
   "docling>=2.92.0",
   "mcp>=1.27.0",
+  "pygnuregex>=1.1.2",
   "sentence-transformers>=5.4.1",
   "zvec>=0.3.1",
 ]

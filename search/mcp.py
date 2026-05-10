@@ -9,12 +9,12 @@ from .search import (
     MAX_QUERY_TOP_K,
     SearchContext,
     all_by_name_dense,
-    all_by_name_like,
+    all_by_name_grep,
     all_names,
     find_by_text_bm25,
     find_by_text_dense,
     find_by_text_hybrid,
-    find_by_text_like,
+    find_by_text_grep,
 )
 from .types import SearchResult
 
@@ -126,21 +126,22 @@ def build_mcp_server(ctx: SearchContext) -> FastMCP:
         return find_by_text_hybrid(ctx=ctx, query=query, top_k=top_k, nprobe=nprobe)
 
     @mcp.tool(
-        name="find_by_text_like",
-        title="Find By Text Like",
+        name="find_by_text_grep",
+        title="Find By Text Grep",
         description=(
-            "Use for exact or near-exact substring search when you expect the source text to "
-            "contain the same words, codes, names, or phrases. Input: query string and optional "
-            "top_k. Output: list of matching document chunks with fields id, name, text, metadata, "
-            "and score=1.0. Best when literal substring matching is required."
+            "Use for GNU grep pattern search when you expect the source text to match a grep regular "
+            "expression. This uses ordinary grep syntax, not LIKE and not CLI flags. Input: query "
+            "string and optional top_k. Output: list of matching document chunks with fields id, "
+            "name, text, metadata, and score=1.0. Example patterns: 'evilginx', '^Chapter [0-9][0-9]*$', "
+            "'mysql_.*', '\\(error\\|warning\\)'."
         ),
         structured_output=True,
     )
-    def find_by_text_like_tool(
+    def find_by_text_grep_tool(
         query: Annotated[
             str,
             Field(
-                description="Exact text fragment to find inside chunk text. Best for literal phrases, identifiers, codes, or known wording. Empty string returns an empty list."
+                description="GNU grep pattern to match against chunk text. Use ordinary grep syntax such as 'evilginx', '^Step [0-9][0-9]*$', 'kesl-control --start-task [0-9][0-9]*', or '\\(error\\|warning\\)'. Empty string returns an empty list."
             ),
         ],
         top_k: Annotated[
@@ -148,28 +149,29 @@ def build_mcp_server(ctx: SearchContext) -> FastMCP:
             Field(description="Maximum number of matching chunks to return."),
         ] = 5,
     ) -> list[SearchResult]:
-        return find_by_text_like(ctx=ctx, query=query, top_k=top_k)
+        return find_by_text_grep(ctx=ctx, query=query, top_k=top_k)
 
     @mcp.tool(
-        name="all_by_name_like",
-        title="All By Name Like",
+        name="all_by_name_grep",
+        title="All By Name Grep",
         description=(
             "Use when the user knows all or part of the file name and wants the full content for "
-            "every matching source. Input: file-name query string. Output: all chunks for files "
-            "whose normalized name contains that substring, each with id, name, text, metadata, "
-            "and score=1.0. Best when the document name is already known."
+            "every matching source. Input: file-name grep pattern using ordinary GNU grep syntax. "
+            "Output: all chunks for files whose normalized name matches that grep pattern, each with "
+            "id, name, text, metadata, and score=1.0. Example patterns: 'KESL', '^Project .* Guide$', "
+            "'KSC_[0-9][0-9][0-9][0-9]'."
         ),
         structured_output=True,
     )
-    def all_by_name_like_tool(
+    def all_by_name_grep_tool(
         query: Annotated[
             str,
             Field(
-                description="Exact substring to match against normalized file names. Use when the document name or part of it is already known. Empty string returns an empty list."
+                description="GNU grep pattern to match against normalized file names. Use ordinary grep syntax such as 'KESL', '^Project .* Guide$', or 'Formulary\\|Guide'. Empty string returns an empty list."
             ),
         ],
     ) -> list[SearchResult]:
-        return all_by_name_like(ctx=ctx, query=query)
+        return all_by_name_grep(ctx=ctx, query=query)
 
     @mcp.tool(
         name="all_by_name_dense",

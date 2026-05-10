@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -13,23 +12,24 @@ from embed.cli import (
     DEFAULT_MODELS_DIR,
     MODE_FIND_BY_TEXT_BM25,
     MODE_FIND_BY_TEXT_DENSE,
+    MODE_FIND_BY_TEXT_GREP,
     MODE_FIND_BY_TEXT_HYBRID,
-    MODE_FIND_BY_TEXT_LIKE,
 )
 from main import _resolve_query_collection_name
 from search.search import build_context, run_search
 from search.types import search_results_to_jsonable
 
 
-DOCS_DIR = ROOT / "docs"
+# DOCS_DIR = ROOT / "docs"
+DOCS_DIR = Path("/") / "home" / "d6f" / "files" / "second-brain.md" / "core"
 ZVEC_DIR = ROOT / "data" / "zvec"
 QUERY = "evilginx"
 ALL_QUERY_MODES = (
     MODE_FIND_BY_TEXT_DENSE,
     MODE_FIND_BY_TEXT_BM25,
     MODE_FIND_BY_TEXT_HYBRID,
-    MODE_FIND_BY_TEXT_LIKE,
-    # MODE_ALL_BY_NAME_LIKE,
+    MODE_FIND_BY_TEXT_GREP,
+    # MODE_ALL_BY_NAME_GREP,
     # MODE_ALL_BY_NAME_DENSE,
 )
 

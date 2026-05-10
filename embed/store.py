@@ -27,6 +27,7 @@ TEXT_EMBEDDING_FIELD = "text_embedding"
 TEXT_SPARSE_EMBEDDING_FIELD = "text_sparse_embedding"
 EMBED_CONFIG_FILENAME = "_embed_config.json"
 BM25_ENCODER_FILENAME = "_text_bm25_encoder.json"
+DOC_MANIFEST_FILENAME = "_doc_manifest.json"
 
 
 def _ensure_zvec_initialized() -> None:
@@ -69,6 +70,36 @@ def read_embed_config(
     if not config_path.exists():
         return None
     return json.loads(config_path.read_text())
+
+
+def write_doc_manifest(
+    collection_name: str,
+    zvec_uri: str | Path,
+    manifest: dict[str, list[str]],
+) -> None:
+    manifest_path = _collection_path(collection_name, zvec_uri) / DOC_MANIFEST_FILENAME
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+
+def read_doc_manifest(
+    collection_name: str,
+    zvec_uri: str | Path,
+) -> dict[str, list[str]] | None:
+    manifest_path = _collection_path(collection_name, zvec_uri) / DOC_MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return None
+
+    raw_manifest = json.loads(manifest_path.read_text())
+    if not isinstance(raw_manifest, dict):
+        raise ValueError(f"Invalid doc manifest format: {manifest_path}")
+
+    manifest: dict[str, list[str]] = {}
+    for path, ids in raw_manifest.items():
+        if not isinstance(path, str) or not isinstance(ids, list):
+            raise ValueError(f"Invalid doc manifest entry: {manifest_path}")
+        manifest[path] = [str(doc_id) for doc_id in ids]
+
+    return manifest
 
 
 def get_or_create_collection(

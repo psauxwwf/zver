@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 import dashtext
+import pygnuregex
 import zvec
 from sentence_transformers import SentenceTransformer
 from zvec import (
@@ -25,6 +28,7 @@ from embed.store import (
     METADATA_FIELD,
     NAME_EMBEDDING_FIELD,
     NAME_FIELD,
+    read_doc_manifest,
     TEXT_SPARSE_EMBEDDING_FIELD,
     TEXT_EMBEDDING_FIELD,
     TEXT_FIELD,
@@ -44,6 +48,8 @@ class SearchContext:
     docs_dir: Path
     text_bm25_query_encoder: dashtext.SparseVectorEncoder | None = None
     text_bm25_query_encoder_loaded: bool = False
+    doc_manifest_ids: list[str] | None = None
+    doc_manifest_ids_loaded: bool = False
 
 
 def _configure_model_storage(models_dir: Path) -> None:
@@ -197,6 +203,63 @@ def _run_name_query(collection: Collection) -> list[Doc]:
     )
 
 
+def _compile_grep_pattern(query_value: str) -> pygnuregex.Pattern:
+    try:
+        return pygnuregex.compile(
+            query_value.encode("utf-8"),
+            int(pygnuregex.SyntaxFlag.RE_SYNTAX_GREP),
+        )
+    except RuntimeError as exc:
+        raise ValueError(f"Invalid grep pattern: {exc}") from exc
+
+
+def _grep_matches(pattern: pygnuregex.Pattern, value: str) -> bool:
+    return pattern.search(value.encode("utf-8")) >= 0
+
+
+def _build_doc_manifest_ids(
+    collection_name: str,
+    zvec_uri: Path,
+) -> list[str] | None:
+    manifest = read_doc_manifest(collection_name=collection_name, zvec_uri=zvec_uri)
+    if manifest is None:
+        return None
+    return [doc_id for doc_ids in manifest.values() for doc_id in doc_ids]
+
+
+def _ensure_doc_manifest_ids(ctx: SearchContext) -> list[str] | None:
+    if ctx.doc_manifest_ids_loaded:
+        return ctx.doc_manifest_ids
+
+    ctx.doc_manifest_ids = _build_doc_manifest_ids(
+        collection_name=ctx.collection_name,
+        zvec_uri=ctx.zvec_uri,
+    )
+    ctx.doc_manifest_ids_loaded = True
+    return ctx.doc_manifest_ids
+
+
+def _iter_all_docs(ctx: SearchContext, batch_size: int = 1000) -> Iterator[Doc]:
+    doc_ids = _ensure_doc_manifest_ids(ctx)
+    if doc_ids is None:
+        logging.warning(
+            "Doc manifest is missing for collection '%s'; grep search is limited to the first %s docs. Re-run embedding to enable full scans.",
+            ctx.collection_name,
+            MAX_QUERY_TOP_K,
+        )
+        yield from _run_filter_query(ctx.collection, None, MAX_QUERY_TOP_K)
+        return
+
+    effective_batch_size = max(batch_size, 1)
+    for start in range(0, len(doc_ids), effective_batch_size):
+        batch_ids = doc_ids[start : start + effective_batch_size]
+        docs_by_id = ctx.collection.fetch(batch_ids)
+        for doc_id in batch_ids:
+            doc = docs_by_id.get(doc_id)
+            if doc is not None:
+                yield doc
+
+
 def find_by_text_dense(
     ctx: SearchContext,
     query: str,
@@ -300,28 +363,39 @@ def find_by_text_hybrid(
     return [_doc_to_result(doc) for doc in docs]
 
 
-def find_by_text_like(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
+def find_by_text_grep(ctx: SearchContext, query: str, top_k: int) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
 
-    docs = _run_filter_query(
-        ctx.collection,
-        f"{TEXT_FIELD} LIKE {_json_literal(f'%{query_value}%')}",
-        top_k,
-    )
+    pattern = _compile_grep_pattern(query_value)
+    docs: list[Doc] = []
+    effective_top_k = min(max(top_k, 1), MAX_QUERY_TOP_K)
+
+    for doc in _iter_all_docs(ctx):
+        if not isinstance(doc.field(TEXT_FIELD), str):
+            continue
+        if not _grep_matches(pattern, str(doc.field(TEXT_FIELD))):
+            continue
+        docs.append(doc)
+        if len(docs) >= effective_top_k:
+            break
+
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
-def all_by_name_like(ctx: SearchContext, query: str) -> list[SearchResult]:
+def all_by_name_grep(ctx: SearchContext, query: str) -> list[SearchResult]:
     query_value = query.strip()
     if not query_value:
         return []
 
-    docs = _run_all_by_name_filter(
-        ctx.collection,
-        f"{NAME_FIELD} LIKE {_json_literal(f'%{query_value}%')}",
-    )
+    pattern = _compile_grep_pattern(query_value)
+    docs = [
+        doc
+        for doc in _iter_all_docs(ctx)
+        if isinstance(doc.field(NAME_FIELD), str)
+        and _grep_matches(pattern, str(doc.field(NAME_FIELD)))
+    ]
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
@@ -385,8 +459,8 @@ def run_search(
         "find_by_text_dense": lambda: find_by_text_dense(ctx, query, top_k, nprobe),
         "find_by_text_bm25": lambda: find_by_text_bm25(ctx, query, top_k),
         "find_by_text_hybrid": lambda: find_by_text_hybrid(ctx, query, top_k, nprobe),
-        "find_by_text_like": lambda: find_by_text_like(ctx, query, top_k),
-        "all_by_name_like": lambda: all_by_name_like(ctx, query),
+        "find_by_text_grep": lambda: find_by_text_grep(ctx, query, top_k),
+        "all_by_name_grep": lambda: all_by_name_grep(ctx, query),
         "all_by_name_dense": lambda: all_by_name_dense(ctx, query, top_k, nprobe),
     }
 

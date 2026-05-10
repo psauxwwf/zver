@@ -19,6 +19,8 @@ from .store import (
     BM25_ENCODER_FILENAME,
     METADATA_FIELD,
     get_or_create_collection,
+    read_doc_manifest,
+    write_doc_manifest,
     write_embed_config,
 )
 from .source import (
@@ -135,6 +137,7 @@ def load_documents(
     skipped = 0
     prepared_docs: list[tuple[Path, list[str]]] = []
     empty_paths: list[Path] = []
+    doc_manifest = read_doc_manifest(collection_name=collection_name, zvec_uri=zvec_uri) or {}
 
     for path in files:
         try:
@@ -168,6 +171,12 @@ def load_documents(
     if not text_corpus:
         for path in empty_paths:
             collection.delete_by_filter(_path_filter(path))
+            doc_manifest.pop(str(path), None)
+        write_doc_manifest(
+            collection_name=collection_name,
+            zvec_uri=zvec_uri,
+            manifest=doc_manifest,
+        )
         logging.info("No data to ingest")
         return 0
 
@@ -192,6 +201,7 @@ def load_documents(
 
     for path in empty_paths:
         collection.delete_by_filter(_path_filter(path))
+        doc_manifest.pop(str(path), None)
 
     for path, chunks in prepared_docs:
         docs_for_path = _build_docs_for_path(
@@ -200,6 +210,7 @@ def load_documents(
             transformer,
             bm25_document_encoder,
         )
+        doc_manifest[str(path)] = [doc.id for doc in docs_for_path]
 
         if batch_size > 0 and docs_batch and len(docs_batch) + len(docs_for_path) > batch_size:
             inserted = _flush_batch(collection, docs_batch)
@@ -224,6 +235,11 @@ def load_documents(
         return 0
 
     collection.flush()
+    write_doc_manifest(
+        collection_name=collection_name,
+        zvec_uri=zvec_uri,
+        manifest=doc_manifest,
+    )
     logging.info(
         "Ingested %s chunks into '%s' at %s (skipped %s files)",
         ingested,

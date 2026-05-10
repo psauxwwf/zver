@@ -25,8 +25,8 @@ DEFAULT_EXTENSIONS = (
 MODE_FIND_BY_TEXT_DENSE = "find_by_text_dense"
 MODE_FIND_BY_TEXT_BM25 = "find_by_text_bm25"
 MODE_FIND_BY_TEXT_HYBRID = "find_by_text_hybrid"
-MODE_FIND_BY_TEXT_LIKE = "find_by_text_like"
-MODE_ALL_BY_NAME_LIKE = "all_by_name_like"
+MODE_FIND_BY_TEXT_GREP = "find_by_text_grep"
+MODE_ALL_BY_NAME_GREP = "all_by_name_grep"
 MODE_ALL_BY_NAME_DENSE = "all_by_name_dense"
 
 
@@ -129,8 +129,8 @@ def parse_args() -> argparse.Namespace:
             MODE_FIND_BY_TEXT_DENSE,
             MODE_FIND_BY_TEXT_BM25,
             MODE_FIND_BY_TEXT_HYBRID,
-            MODE_FIND_BY_TEXT_LIKE,
-            MODE_ALL_BY_NAME_LIKE,
+            MODE_FIND_BY_TEXT_GREP,
+            MODE_ALL_BY_NAME_GREP,
             MODE_ALL_BY_NAME_DENSE,
         ],
         help="Search mode",

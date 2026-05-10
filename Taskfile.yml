@@ -24,3 +24,4 @@ tasks:
     desc: run query smoke test against current database
     cmds:
       - uv run python tests/query_current_db.py
+      - uv run python tests/query_current_db_grep.py

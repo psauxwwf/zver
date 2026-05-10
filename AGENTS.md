@@ -12,8 +12,8 @@
 
 - Ingest documents: `uv run python main.py embed --docs docs`
 - Run a one-off query: `uv run python main.py query --docs docs --mode find_by_text_dense "your query"`
-- Text search modes: `find_by_text_dense`, `find_by_text_bm25`, `find_by_text_hybrid`, `find_by_text_like`
-- Document-name search modes: `all_by_name_dense`, `all_by_name_like`
+- Text search modes: `find_by_text_dense`, `find_by_text_bm25`, `find_by_text_hybrid`, `find_by_text_grep`
+- Document-name search modes: `all_by_name_dense`, `all_by_name_grep`
 - Start the MCP server: `uv run python main.py mcp --docs docs`
 - Build the standalone binary: `task build:python` (writes `bin/zver` via Nuitka)
 - Build in Docker: `task build:docker`
