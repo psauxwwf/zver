@@ -52,7 +52,7 @@ NAME_GREP_CASES = (
     },
     {
         "pattern": r"[Ee][Vv][Ii][Ll][Gg][Ii][Nn][Xx]\|[Ii][Pp][Ss][Ee][Cc]",
-        "expected_names": ("evilginx", "ipsec"),
+        "expected_names": ("evilginx", "ipsec", "l2tp ipsec IKEv2"),
     },
 )
 
@@ -87,7 +87,9 @@ def main() -> int:
         payload = search_mode(ctx, MODE_FIND_BY_TEXT_GREP, pattern)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         if not payload:
-            failures.append(f"{MODE_FIND_BY_TEXT_GREP} {pattern!r}: returned no results")
+            failures.append(
+                f"{MODE_FIND_BY_TEXT_GREP} {pattern!r}: returned no results"
+            )
             continue
         if not any(item_mentions_any(item, case["expected_any"]) for item in payload):
             failures.append(
@@ -102,7 +104,9 @@ def main() -> int:
         if not payload:
             failures.append(f"{MODE_ALL_BY_NAME_GREP} {pattern!r}: returned no results")
             continue
-        if not any(item_has_expected_name(item, case["expected_names"]) for item in payload):
+        if not any(
+            item_has_expected_name(item, case["expected_names"]) for item in payload
+        ):
             failures.append(
                 f"{MODE_ALL_BY_NAME_GREP} {pattern!r}: no result name matches any of {case['expected_names']!r}"
             )
@@ -146,7 +150,9 @@ def item_mentions_any(item: object, expected_any: tuple[str, ...]) -> bool:
         metadata_path.lower(),
     )
     expected_lower = tuple(value.lower() for value in expected_any)
-    return any(expected in haystack for haystack in haystacks for expected in expected_lower)
+    return any(
+        expected in haystack for haystack in haystacks for expected in expected_lower
+    )
 
 
 def item_has_expected_name(item: object, expected_names: tuple[str, ...]) -> bool:

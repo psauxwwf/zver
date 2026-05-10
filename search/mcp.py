@@ -6,7 +6,6 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from .search import (
-    MAX_QUERY_TOP_K,
     SearchContext,
     all_by_name_dense,
     all_by_name_grep,
@@ -213,7 +212,7 @@ def build_mcp_server(ctx: SearchContext) -> FastMCP:
         description=(
             "Use to inspect what documents are available before choosing a more specific tool. "
             "Input: none. Output: sorted list of distinct normalized file names currently stored in "
-            f"the collection, limited by the current backend query cap of {MAX_QUERY_TOP_K} documents."
+            "the collection."
         ),
         structured_output=True,
     )

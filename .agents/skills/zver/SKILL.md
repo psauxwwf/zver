@@ -217,7 +217,7 @@ A list of strings:
 ### Limits
 
 - the list is built from the indexed collection;
-- the current implementation is bounded by the backend query cap, so this is not an unlimited directory listing.
+- the list is built by reading the indexed collection, so very large collections may still be expensive to inspect.
 
 ### Example Requests
 

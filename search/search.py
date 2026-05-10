@@ -36,9 +36,6 @@ from embed.store import (
 from .types import SearchResult
 
 
-MAX_QUERY_TOP_K = 1024
-
-
 @dataclass
 class SearchContext:
     collection: Collection
@@ -184,23 +181,14 @@ def _run_filter_query(
     topk: int,
 ) -> list[Doc]:
     return collection.query(
-        topk=min(max(topk, 1), MAX_QUERY_TOP_K),
+        topk=max(topk, 1),
         filter=filter_value,
         output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
     )
 
 
-def _run_all_by_name_filter(
-    collection: Collection, filter_value: str | None
-) -> list[Doc]:
-    return _run_filter_query(collection, filter_value, MAX_QUERY_TOP_K)
-
-
-def _run_name_query(collection: Collection) -> list[Doc]:
-    return collection.query(
-        topk=MAX_QUERY_TOP_K,
-        output_fields=[NAME_FIELD],
-    )
+def _collection_doc_count(collection: Collection) -> int:
+    return max(int(collection.stats.doc_count), 1)
 
 
 def _compile_grep_pattern(query_value: str) -> pygnuregex.Pattern:
@@ -243,11 +231,14 @@ def _iter_all_docs(ctx: SearchContext, batch_size: int = 1000) -> Iterator[Doc]:
     doc_ids = _ensure_doc_manifest_ids(ctx)
     if doc_ids is None:
         logging.warning(
-            "Doc manifest is missing for collection '%s'; grep search is limited to the first %s docs. Re-run embedding to enable full scans.",
+            "Doc manifest is missing for collection '%s'; falling back to a full filter query based on doc_count. Re-run embedding to enable fetch-based full scans.",
             ctx.collection_name,
-            MAX_QUERY_TOP_K,
         )
-        yield from _run_filter_query(ctx.collection, None, MAX_QUERY_TOP_K)
+        yield from _run_filter_query(
+            ctx.collection,
+            None,
+            _collection_doc_count(ctx.collection),
+        )
         return
 
     effective_batch_size = max(batch_size, 1)
@@ -277,7 +268,7 @@ def find_by_text_dense(
             vector=vector,
             param=IVFQueryParam(nprobe=nprobe),
         ),
-        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
+        topk=max(top_k, 1),
         output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
     )
     return [_doc_to_result(doc) for doc in docs]
@@ -322,7 +313,7 @@ def find_by_text_bm25(ctx: SearchContext, query: str, top_k: int) -> list[Search
             field_name=TEXT_SPARSE_EMBEDDING_FIELD,
             vector=sparse_vector,
         ),
-        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
+        topk=max(top_k, 1),
         output_fields=[NAME_FIELD, TEXT_FIELD, METADATA_FIELD],
     )
     return [_doc_to_result(doc) for doc in docs]
@@ -343,7 +334,7 @@ def find_by_text_hybrid(
         return find_by_text_dense(ctx, query_value, top_k, nprobe)
 
     dense_vector = ctx.transformer.encode([query_value]).tolist()[0]
-    effective_top_k = min(max(top_k, 1), MAX_QUERY_TOP_K)
+    effective_top_k = max(top_k, 1)
     docs = ctx.collection.query(
         vectors=[
             VectorQuery(
@@ -370,7 +361,7 @@ def find_by_text_grep(ctx: SearchContext, query: str, top_k: int) -> list[Search
 
     pattern = _compile_grep_pattern(query_value)
     docs: list[Doc] = []
-    effective_top_k = min(max(top_k, 1), MAX_QUERY_TOP_K)
+    effective_top_k = max(top_k, 1)
 
     for doc in _iter_all_docs(ctx):
         if not isinstance(doc.field(TEXT_FIELD), str):
@@ -400,10 +391,9 @@ def all_by_name_grep(ctx: SearchContext, query: str) -> list[SearchResult]:
 
 
 def all_names(ctx: SearchContext) -> list[str]:
-    docs = _run_name_query(ctx.collection)
     names = {
         name
-        for doc in docs
+        for doc in _iter_all_docs(ctx)
         for name in [doc.field(NAME_FIELD)]
         if isinstance(name, str) and name
     }
@@ -411,7 +401,7 @@ def all_names(ctx: SearchContext) -> list[str]:
 
 
 def all_chunks(ctx: SearchContext) -> list[SearchResult]:
-    docs = _run_filter_query(ctx.collection, None, MAX_QUERY_TOP_K)
+    docs = list(_iter_all_docs(ctx))
     return [_doc_to_result(doc, score=1.0) for doc in docs]
 
 
@@ -432,7 +422,7 @@ def all_by_name_dense(
             vector=vector,
             param=IVFQueryParam(nprobe=nprobe),
         ),
-        topk=min(max(top_k, 1), MAX_QUERY_TOP_K),
+        topk=max(top_k, 1),
         output_fields=[NAME_FIELD],
     )
     candidate_names = _unique_names(candidate_docs, max(top_k, 1))
@@ -440,8 +430,12 @@ def all_by_name_dense(
         return []
 
     score_by_name = {name: score for name, score in candidate_names}
-    filter_value = _or_equals(NAME_FIELD, [name for name, _ in candidate_names])
-    docs = _run_all_by_name_filter(ctx.collection, filter_value)
+    candidate_name_set = set(score_by_name)
+    docs = [
+        doc
+        for doc in _iter_all_docs(ctx)
+        if str(doc.field(NAME_FIELD)) in candidate_name_set
+    ]
     return [
         _doc_to_result(doc, score=score_by_name.get(str(doc.field(NAME_FIELD)), 0.0))
         for doc in docs
