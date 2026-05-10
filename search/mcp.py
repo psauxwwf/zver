@@ -39,7 +39,7 @@ def build_mcp_server(ctx: SearchContext) -> FastMCP:
             "and exact wording may differ from the source text. Input: query string, optional "
             "top_k and nprobe. Output: list of matching document chunks with fields id, name, "
             "text, metadata, and similarity score. Best when the user is asking by meaning rather "
-            "than exact terms."
+            "than exact terms, but hybrid is the recommended default search tool."
         ),
         structured_output=True,
     )
@@ -97,8 +97,8 @@ def build_mcp_server(ctx: SearchContext) -> FastMCP:
             "Use for combined semantic and lexical retrieval over document content. It mixes dense "
             "vector search with BM25-style sparse search and re-ranks the merged candidates. Input: "
             "query string, optional top_k and nprobe. Output: list of matching document chunks with "
-            "fields id, name, text, metadata, and score. Best default when both meaning and exact "
-            "terms may matter."
+            "fields id, name, text, metadata, and score. Recommended default search tool when both "
+            "meaning and exact terms may matter."
         ),
         structured_output=True,
     )

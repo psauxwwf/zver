@@ -19,9 +19,9 @@ Goals of this skill:
 Use this decision order:
 
 1. If you first need to know what documents exist at all, call `MCP_ZVER_all_names`.
-2. If the user is searching by meaning, topic, question, or content description, call `MCP_ZVER_find_by_text_dense`.
-3. If the user needs lexical ranked search over query terms, call `MCP_ZVER_find_by_text_bm25`.
-4. If the user wants a balanced semantic + lexical result, call `MCP_ZVER_find_by_text_hybrid`.
+2. If the user needs the recommended default tool for content search, call `MCP_ZVER_find_by_text_hybrid`.
+3. If the user is searching by meaning, topic, question, or content description and semantic matching matters most, call `MCP_ZVER_find_by_text_dense`.
+4. If the user needs lexical ranked search over query terms, call `MCP_ZVER_find_by_text_bm25`.
 5. If the user knows the exact phrase, code, term, or literal text fragment, call `MCP_ZVER_find_by_text_grep`.
 6. If the user knows the document name or part of it and wants that document's content, call `MCP_ZVER_all_by_name_grep`.
 7. If the user does not know the exact document name but describes it semantically, and wants the full document, call `MCP_ZVER_all_by_name_dense`.
@@ -38,7 +38,8 @@ Use this decision order:
 
 Main rule:
 
-- if you need a short relevant answer about a topic, usually start with `find_by_text_dense`;
+- if you need the recommended default for text search, start with `find_by_text_hybrid`;
+- if you need a short relevant answer about a topic and semantic matching matters most, use `find_by_text_dense`;
 - if exact terms matter but you still want ranked retrieval, use `find_by_text_bm25`;
 - if you want one default that balances semantics and term matching, use `find_by_text_hybrid`;
 - if you need the entire document, use `all_by_name_grep` or `all_by_name_dense`.
@@ -47,7 +48,7 @@ Main rule:
 
 - `find_by_text_dense`: best when the user asks by meaning and the exact wording in the document may differ.
 - `find_by_text_bm25`: best when exact query terms matter, especially jargon, acronyms, commands, and rare terms.
-- `find_by_text_hybrid`: best default for text search when both meaning and exact terms may matter.
+- `find_by_text_hybrid`: recommended default for text search when both meaning and exact terms may matter.
 - `find_by_text_grep`: best when GNU grep-style pattern matching is required.
 - `all_by_name_grep`: best when the document name is already known.
 - `all_by_name_dense`: best when the document name is unknown but its meaning is known.
@@ -150,13 +151,13 @@ MCP_ZVER_find_by_text_bm25(query="evilginx phishlet", top_k=10)
 
 ### When To Use
 
-Use it for combined semantic and lexical retrieval over document content. It mixes dense vector search with BM25-style sparse search and re-ranks the merged candidates.
+Use it for combined semantic and lexical retrieval over document content. It mixes dense vector search with BM25-style sparse search and re-ranks the merged candidates. This is the recommended search tool by default.
 
 Good for:
 
 - short practical queries where both meaning and exact terms matter;
 - ambiguous queries where dense alone may drift and BM25 alone may be too narrow;
-- a strong default when the user wants search quality rather than a specific retrieval style.
+- the recommended default when the user wants search quality rather than a specific retrieval style.
 
 ### When Not To Use
 
@@ -258,7 +259,7 @@ Do not use it as the first choice if:
 
 - empty `query` returns `[]`;
 - returns only the best chunks, not the entire document;
-- usually the best default tool for answering user questions.
+- usually the better choice when semantic similarity matters more than exact term matching.
 
 ### Example Requests
 
@@ -465,7 +466,7 @@ MCP_ZVER_all_by_name_dense(query="document about KSCL installation", top_k=1, np
 
 ### Strategy 1: Short Answer To A User Question
 
-1. Call `MCP_ZVER_find_by_text_dense`.
+1. Call `MCP_ZVER_find_by_text_hybrid`.
 2. Use the top 3-5 best chunks.
 3. Build the answer from those chunks.
 4. If useful, mention the source document via `metadata.path` and `name`.
@@ -480,7 +481,7 @@ MCP_ZVER_all_by_name_dense(query="document about KSCL installation", top_k=1, np
 
 1. Call `MCP_ZVER_find_by_text_hybrid`.
 2. Use the top 3-5 best chunks.
-3. Prefer this when both semantics and exact terms may matter.
+3. Prefer this as the recommended default for general text search.
 
 ### Strategy 2: User Knows The Exact Phrase Or Command
 
@@ -498,7 +499,7 @@ MCP_ZVER_all_by_name_dense(query="document about KSCL installation", top_k=1, np
 
 1. Call `MCP_ZVER_all_by_name_dense` or `MCP_ZVER_all_names`.
 2. Identify the target document.
-3. Then, if the goal is not the whole document but a precise answer, call `MCP_ZVER_find_by_text_dense` or `MCP_ZVER_find_by_text_grep` with a narrower query.
+3. Then, if the goal is not the whole document but a precise answer, call `MCP_ZVER_find_by_text_hybrid`, `MCP_ZVER_find_by_text_dense`, or `MCP_ZVER_find_by_text_grep` with a narrower query.
 
 ## Practical Rules
 

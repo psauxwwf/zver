@@ -5,11 +5,18 @@ import logging
 import os
 from pathlib import Path
 
-from docling.document_converter import DocumentConverter
+from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import (
+    DocumentConverter,
+    ImageFormatOption,
+    PdfFormatOption,
+)
 from sentence_transformers import SentenceTransformer
 from zvec import BM25EmbeddingFunction, Collection, Doc
 
-from .model import build_sentence_transformer
+from .model import build_sentence_transformer, resolve_transformer_device
 
 from .document import (
     build_docs,
@@ -40,17 +47,33 @@ def _flush_batch(collection: Collection, docs_batch: list[Doc]) -> int:
     return inserted
 
 
-def _configure_model_storage(models_dir: Path) -> None:
+def _configure_model_storage(models_dir: Path, device: str | None) -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     os.environ["HF_HOME"] = str(models_dir)
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(models_dir)
 
 
+def _build_document_converter(device: str | None) -> DocumentConverter:
+    if device != "cpu":
+        return DocumentConverter()
+
+    pipeline_options = PdfPipelineOptions(
+        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.CPU)
+    )
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options),
+        }
+    )
+
+
 def _build_transformer(
     embed_model_name: str,
     models_dir: Path,
+    device: str | None,
 ) -> tuple[SentenceTransformer, int]:
-    transformer = build_sentence_transformer(embed_model_name, models_dir)
+    transformer = build_sentence_transformer(embed_model_name, models_dir, device)
     dim = transformer.get_embedding_dimension()
     if dim is None:
         raise RuntimeError(
@@ -117,9 +140,10 @@ def load_documents(
     by_source: bool,
     include_ext: list[str] | None,
 ) -> int:
-    _configure_model_storage(models_dir)
-    converter = DocumentConverter()
-    transformer, dim = _build_transformer(embed_model_name, models_dir)
+    device = resolve_transformer_device()
+    _configure_model_storage(models_dir, device)
+    converter = _build_document_converter(device)
+    transformer, dim = _build_transformer(embed_model_name, models_dir, device)
     chunker = build_hybrid_chunker(transformer)
     collection = get_or_create_collection(
         collection_name=collection_name,

@@ -290,6 +290,8 @@ def _build_text_bm25_query_vector(
         )
 
     sparse_vector = encoder.encode_queries(query_value)
+    if isinstance(sparse_vector, list):
+        raise TypeError("Expected a single sparse vector for one query string")
     if not sparse_vector:
         return {}
     return {

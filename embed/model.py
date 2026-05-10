@@ -22,7 +22,7 @@ def _is_local_cache_miss(exc: Exception) -> bool:
     )
 
 
-def _resolve_transformer_device() -> str | None:
+def resolve_transformer_device() -> str | None:
     if not torch.cuda.is_available():
         return None
 
@@ -60,8 +60,10 @@ def _resolve_transformer_device() -> str | None:
 def build_sentence_transformer(
     embed_model_name: str,
     models_dir: Path,
+    device: str | None = None,
 ) -> SentenceTransformer:
-    device = _resolve_transformer_device()
+    if device is None:
+        device = resolve_transformer_device()
     kwargs: dict[str, str | bool] = {
         "cache_folder": str(models_dir),
         "local_files_only": True,
