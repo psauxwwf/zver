@@ -1,0 +1,20 @@
+services:
+  zver:
+    image: ghcr.io/psauxwwf/zver:latest
+    container_name: zver
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./docs:/zver/docs
+      - ./data:/zver/data
+    networks:
+      zver:
+    ports:
+      - 127.0.0.1:8000:8000/tcp
+
+networks:
+  zver:
+    name: zver
+    driver: bridge

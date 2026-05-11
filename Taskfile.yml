@@ -26,3 +26,8 @@ tasks:
     cmds:
       - uv run python tests/query_current_db.py
       - uv run python tests/query_current_db_grep.py
+
+  docker:
+    desc: build and up docker images
+    cmds:
+      - docker compose up -d --build --force-recreate

@@ -1,0 +1,12 @@
+__pycache__
+/.dockerignore
+/.git
+/.gitignore
+/.ruff_cache
+/.venv
+/bin
+/data
+/Dockerfile
+/docs
+/tests
+/TODO.md
