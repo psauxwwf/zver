@@ -3,3 +3,6 @@
 - [ ] Tool call for every query in skill
 - [x] Hash for input doc
 - [ ] Sound to text -> to embed
+- [ ] Dockerfile with mcp entrypoint
+- [ ] Litestar API
+- [ ] docker-compose with opencode web
