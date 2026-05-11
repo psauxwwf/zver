@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TypedDict
 
 import zvec
 from zvec import (
@@ -25,9 +26,13 @@ METADATA_FIELD = "metadata"
 NAME_EMBEDDING_FIELD = "name_embedding"
 TEXT_EMBEDDING_FIELD = "text_embedding"
 TEXT_SPARSE_EMBEDDING_FIELD = "text_sparse_embedding"
-EMBED_CONFIG_FILENAME = "_embed_config.json"
 BM25_ENCODER_FILENAME = "_text_bm25_encoder.json"
 DOC_MANIFEST_FILENAME = "_doc_manifest.json"
+
+
+class DocManifestEntry(TypedDict):
+    hash: str
+    ids: list[str]
 
 
 def _ensure_zvec_initialized() -> None:
@@ -53,29 +58,10 @@ def _collection_path(collection_name: str, zvec_uri: str | Path) -> Path:
     return Path(zvec_uri) / collection_name
 
 
-def write_embed_config(
-    collection_name: str,
-    zvec_uri: str | Path,
-    config: dict[str, object],
-) -> None:
-    config_path = _collection_path(collection_name, zvec_uri) / EMBED_CONFIG_FILENAME
-    config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
-
-
-def read_embed_config(
-    collection_name: str,
-    zvec_uri: str | Path,
-) -> dict[str, object] | None:
-    config_path = _collection_path(collection_name, zvec_uri) / EMBED_CONFIG_FILENAME
-    if not config_path.exists():
-        return None
-    return json.loads(config_path.read_text())
-
-
 def write_doc_manifest(
     collection_name: str,
     zvec_uri: str | Path,
-    manifest: dict[str, list[str]],
+    manifest: dict[str, DocManifestEntry],
 ) -> None:
     manifest_path = _collection_path(collection_name, zvec_uri) / DOC_MANIFEST_FILENAME
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -84,7 +70,7 @@ def write_doc_manifest(
 def read_doc_manifest(
     collection_name: str,
     zvec_uri: str | Path,
-) -> dict[str, list[str]] | None:
+) -> dict[str, DocManifestEntry] | None:
     manifest_path = _collection_path(collection_name, zvec_uri) / DOC_MANIFEST_FILENAME
     if not manifest_path.exists():
         return None
@@ -93,11 +79,18 @@ def read_doc_manifest(
     if not isinstance(raw_manifest, dict):
         raise ValueError(f"Invalid doc manifest format: {manifest_path}")
 
-    manifest: dict[str, list[str]] = {}
-    for path, ids in raw_manifest.items():
-        if not isinstance(path, str) or not isinstance(ids, list):
+    manifest: dict[str, DocManifestEntry] = {}
+    for path, entry in raw_manifest.items():
+        if not isinstance(path, str) or not isinstance(entry, dict):
             raise ValueError(f"Invalid doc manifest entry: {manifest_path}")
-        manifest[path] = [str(doc_id) for doc_id in ids]
+        file_hash = entry.get("hash")
+        ids = entry.get("ids")
+        if not isinstance(file_hash, str) or not isinstance(ids, list):
+            raise ValueError(f"Invalid doc manifest entry: {manifest_path}")
+        manifest[path] = {
+            "hash": file_hash,
+            "ids": [str(doc_id) for doc_id in ids],
+        }
 
     return manifest
 

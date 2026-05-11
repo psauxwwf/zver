@@ -1,5 +1,5 @@
 - [x] Like in grep
 - [x] Hybrid as default
 - [ ] Tool call for every query in skill
-- [ ] Hash for input doc
+- [x] Hash for input doc
 - [ ] Sound to text -> to embed

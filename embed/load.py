@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -16,11 +17,15 @@ from docling.document_converter import (
 from sentence_transformers import SentenceTransformer
 from zvec import BM25EmbeddingFunction, Collection, Doc
 
-from .model import build_sentence_transformer, resolve_transformer_device
-
 from .document import (
     build_docs,
     normalize_source_name,
+)
+from .model import build_sentence_transformer, resolve_transformer_device
+from .source import (
+    build_hybrid_chunker,
+    get_chunks,
+    get_source_files,
 )
 from .store import (
     BM25_ENCODER_FILENAME,
@@ -28,12 +33,6 @@ from .store import (
     get_or_create_collection,
     read_doc_manifest,
     write_doc_manifest,
-    write_embed_config,
-)
-from .source import (
-    build_hybrid_chunker,
-    get_source_files,
-    get_chunks,
 )
 
 
@@ -47,7 +46,7 @@ def _flush_batch(collection: Collection, docs_batch: list[Doc]) -> int:
     return inserted
 
 
-def _configure_model_storage(models_dir: Path, device: str | None) -> None:
+def _configure_model_storage(models_dir: Path) -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     os.environ["HF_HOME"] = str(models_dir)
     os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(models_dir)
@@ -113,7 +112,9 @@ def _build_docs_for_path(
 
 def _path_filter(path: Path) -> str:
     path_fragment = f'"path": {json.dumps(str(path), ensure_ascii=False)}'
-    return f'{METADATA_FIELD} LIKE {json.dumps(f"%{path_fragment}%", ensure_ascii=False)}'
+    return (
+        f"{METADATA_FIELD} LIKE {json.dumps(f'%{path_fragment}%', ensure_ascii=False)}"
+    )
 
 
 def _write_bm25_encoder(
@@ -129,6 +130,35 @@ def _write_bm25_encoder(
     encoder.dump(str(encoder_path))
 
 
+def _hash_file(path: Path) -> str:
+    digest = hashlib.md5()
+    with path.open("rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_existing_chunks(
+    collection: Collection, doc_ids: list[str]
+) -> list[str] | None:
+    if not doc_ids:
+        return []
+
+    docs_by_id = collection.fetch(doc_ids)
+    chunks: list[str] = []
+    for doc_id in doc_ids:
+        doc = docs_by_id.get(doc_id)
+        if doc is None:
+            return None
+
+        text = doc.field("text")
+        if not isinstance(text, str):
+            return None
+        chunks.append(text)
+
+    return chunks
+
+
 def load_documents(
     docs_dir: Path,
     collection_name: str,
@@ -141,7 +171,7 @@ def load_documents(
     include_ext: list[str] | None,
 ) -> int:
     device = resolve_transformer_device()
-    _configure_model_storage(models_dir, device)
+    _configure_model_storage(models_dir)
     converter = _build_document_converter(device)
     transformer, dim = _build_transformer(embed_model_name, models_dir, device)
     chunker = build_hybrid_chunker(transformer)
@@ -159,11 +189,29 @@ def load_documents(
     docs_batch: list[Doc] = []
     ingested = 0
     skipped = 0
-    prepared_docs: list[tuple[Path, list[str]]] = []
-    empty_paths: list[Path] = []
-    doc_manifest = read_doc_manifest(collection_name=collection_name, zvec_uri=zvec_uri) or {}
+    prepared_docs: list[tuple[Path, str, list[str]]] = []
+    empty_paths: list[tuple[Path, str]] = []
+    preserved_chunks: list[str] = []
+    doc_manifest = (
+        read_doc_manifest(collection_name=collection_name, zvec_uri=zvec_uri) or {}
+    )
 
     for path in files:
+        file_hash = _hash_file(path)
+        manifest_entry = doc_manifest.get(str(path))
+        if manifest_entry is not None and manifest_entry["hash"] == file_hash:
+            existing_chunks = _load_existing_chunks(collection, manifest_entry["ids"])
+            if existing_chunks is not None:
+                skipped += 1
+                preserved_chunks.extend(existing_chunks)
+                logging.info("Skipped %s (unchanged)", path)
+                continue
+
+            logging.warning(
+                "Reprocessing %s because manifest ids are missing from collection",
+                path,
+            )
+
         try:
             chunks = _get_chunks(
                 path=path,
@@ -185,17 +233,19 @@ def load_documents(
         )
 
         if not chunks:
-            empty_paths.append(path)
+            empty_paths.append((path, file_hash))
             logging.debug("No chunks produced for %s", path)
             continue
 
-        prepared_docs.append((path, chunks))
+        prepared_docs.append((path, file_hash, chunks))
 
-    text_corpus = [chunk for _, chunks in prepared_docs for chunk in chunks]
+    text_corpus = preserved_chunks + [
+        chunk for _, _, chunks in prepared_docs for chunk in chunks
+    ]
     if not text_corpus:
-        for path in empty_paths:
+        for path, file_hash in empty_paths:
             collection.delete_by_filter(_path_filter(path))
-            doc_manifest.pop(str(path), None)
+            doc_manifest[str(path)] = {"hash": file_hash, "ids": []}
         write_doc_manifest(
             collection_name=collection_name,
             zvec_uri=zvec_uri,
@@ -213,30 +263,28 @@ def load_documents(
         collection_name=collection_name,
         bm25_document_encoder=bm25_document_encoder,
     )
-    write_embed_config(
-        collection_name=collection_name,
-        zvec_uri=zvec_uri,
-        config={
-            "chunk_min_chars": chunk_min_chars,
-            "by_source": by_source,
-            "include_ext": include_ext,
-        },
-    )
 
-    for path in empty_paths:
+    for path, file_hash in empty_paths:
         collection.delete_by_filter(_path_filter(path))
-        doc_manifest.pop(str(path), None)
+        doc_manifest[str(path)] = {"hash": file_hash, "ids": []}
 
-    for path, chunks in prepared_docs:
+    for path, file_hash, chunks in prepared_docs:
         docs_for_path = _build_docs_for_path(
             path,
             chunks,
             transformer,
             bm25_document_encoder,
         )
-        doc_manifest[str(path)] = [doc.id for doc in docs_for_path]
+        doc_manifest[str(path)] = {
+            "hash": file_hash,
+            "ids": [doc.id for doc in docs_for_path],
+        }
 
-        if batch_size > 0 and docs_batch and len(docs_batch) + len(docs_for_path) > batch_size:
+        if (
+            batch_size > 0
+            and docs_batch
+            and len(docs_batch) + len(docs_for_path) > batch_size
+        ):
             inserted = _flush_batch(collection, docs_batch)
             ingested += inserted
             logging.info("Upserted %s chunks (total %s)", inserted, ingested)

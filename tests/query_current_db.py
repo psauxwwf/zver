@@ -8,16 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from embed.cli import (
+from embed.cli import (  # noqa: E402
     DEFAULT_MODELS_DIR,
     MODE_FIND_BY_TEXT_BM25,
     MODE_FIND_BY_TEXT_DENSE,
     MODE_FIND_BY_TEXT_GREP,
     MODE_FIND_BY_TEXT_HYBRID,
 )
-from main import _resolve_query_collection_name
-from search.search import build_context, run_search
-from search.types import search_results_to_jsonable
+from main import _resolve_query_collection_name  # noqa: E402
+from search.search import build_context, run_search  # noqa: E402
+from search.types import search_results_to_jsonable  # noqa: E402
 
 
 # DOCS_DIR = ROOT / "docs"

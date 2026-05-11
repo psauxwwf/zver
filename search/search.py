@@ -97,8 +97,6 @@ def build_context(
 def _build_text_bm25_query_encoder(
     collection_name: str,
     zvec_uri: Path,
-    docs_dir: Path,
-    transformer: SentenceTransformer,
 ) -> dashtext.SparseVectorEncoder | None:
     encoder_path = zvec_uri / collection_name / BM25_ENCODER_FILENAME
     if not encoder_path.exists():
@@ -118,15 +116,9 @@ def _ensure_text_bm25_query_encoder(
     ctx.text_bm25_query_encoder = _build_text_bm25_query_encoder(
         collection_name=ctx.collection_name,
         zvec_uri=ctx.zvec_uri,
-        docs_dir=ctx.docs_dir,
-        transformer=ctx.transformer,
     )
     ctx.text_bm25_query_encoder_loaded = True
     return ctx.text_bm25_query_encoder
-
-
-def _json_literal(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
 
 
 def _parse_metadata(value: object) -> object:
@@ -168,13 +160,6 @@ def _unique_names(docs: list[Doc], limit: int) -> list[tuple[str, float]]:
     return names
 
 
-def _or_equals(field_name: str, values: list[str]) -> str | None:
-    clauses = [f"({field_name} = {_json_literal(value)})" for value in values if value]
-    if not clauses:
-        return None
-    return " OR ".join(clauses)
-
-
 def _run_filter_query(
     collection: Collection,
     filter_value: str | None,
@@ -212,7 +197,7 @@ def _build_doc_manifest_ids(
     manifest = read_doc_manifest(collection_name=collection_name, zvec_uri=zvec_uri)
     if manifest is None:
         return None
-    return [doc_id for doc_ids in manifest.values() for doc_id in doc_ids]
+    return [doc_id for entry in manifest.values() for doc_id in entry["ids"]]
 
 
 def _ensure_doc_manifest_ids(ctx: SearchContext) -> list[str] | None:
