@@ -28,6 +28,6 @@ RUN uv sync
 
 COPY . .
 
-ENTRYPOINT ["uv","run"]
+ENTRYPOINT ["uv","run","main.py"]
 
 CMD ["mcp"]
